@@ -235,8 +235,16 @@ export class GameManager {
         return session;
     }
 
-    getAllSessions(): GameState[] {
-        return Array.from(this.sessions.values());
+    getAllSessions(): any[] {
+        return Array.from(this.sessions.values()).map(s => ({
+            sessionId: s.sessionId,
+            gameName: s.gameName,
+            round: s.round,
+            playerCount: s?.players?.length || 0,
+            onlineCount: s?.players_online?.length || 0,
+            directorId: s?.director?.id,
+            isEnded: !!s.isEnded
+        }));
     }
 
     restoreSession(session: GameState) {
@@ -248,6 +256,39 @@ export class GameManager {
         if (session.director && !session.director.badges) {
             session.director.badges = [];
         }
+    }
+
+    saveSession(sessionId: string, storage: any) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            storage.saveGame(sessionId, session);
+            return true;
+        }
+        return false;
+    }
+
+    deleteSession(sessionId: string, storage: any) {
+        if (this.sessions.has(sessionId)) {
+            this.sessions.delete(sessionId);
+            storage.deleteGame(sessionId);
+
+            // Remove from index
+            const index = storage.loadGameIndex();
+            index.sessions = index.sessions.filter((id: string) => id !== sessionId);
+            storage.saveGameIndex(index);
+            return true;
+        }
+        return false;
+    }
+
+    endSession(sessionId: string, storage: any) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            session.isEnded = true;
+            storage.saveGame(sessionId, session);
+            return session;
+        }
+        return null;
     }
 
     addBadge(sessionId: string, playerId: string, badgeName: string, hidden: boolean): GameState | null {

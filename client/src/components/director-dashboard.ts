@@ -177,6 +177,19 @@ export class DirectorDashboard extends LitElement {
     .badges-input {
         font-size: 0.75rem;
     }
+
+    .new_player {
+        margin-top: 0.5rem;
+        font-size: 1.5em;
+        background-color: transparent;
+        border: 2px solid #404d69ff;
+        color: #566ea1ff;
+    }
+
+    .new_player:hover {
+        background-color: #404d69ff;
+        color: #566ea1ff;
+    }
   `;
 
   private _nextRound() {
@@ -195,6 +208,7 @@ export class DirectorDashboard extends LitElement {
 
   private _createPlayer() {
     if (!this._newPlayerName) return;
+    this._showPlayerManagement = false
     const badges = this._newPlayerBadges.split(',').map(b => b.trim()).filter(b => b).map(b => ({ name: b, hidden: false }));
 
     this.dispatchEvent(new CustomEvent('create-player', {
@@ -233,23 +247,18 @@ export class DirectorDashboard extends LitElement {
 
     // Determine which actions to display
     let actionsRound = displayRound;
-    let actionsTitle = `Player Actions (Round ${displayRound})`;
 
     if (isCurrentRound && !this.isRoundActive && this.round > 1) {
       // If current round is inactive (waiting for scene update), show previous round's actions
       actionsRound = this.round - 1;
-      actionsTitle = `Player Actions (Previous Round)`;
     }
 
-    // Filter actions for display
-    const displayActions = this.messages.filter(m => m.isAction && m.round === actionsRound);
 
     return html`
       <div class="panel">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h2>${actionsTitle}</h2>
+            <h2>Characters (Round ${displayRound})</h2>
             <div style="display: flex; align-items: center; gap: 1rem;">
-                <span style="color: #9ca3af; font-size: 0.875rem;">Viewing Round: ${displayRound}</span>
                 
                 ${isCurrentRound ? html`
                     ${this.pendingScene ? html`
@@ -264,56 +273,23 @@ export class DirectorDashboard extends LitElement {
                 ` : ''}
             </div>
         </div>
-        <div class="player-list">
-            ${displayActions.map(m => {
-      const player = this.players.find(p => p.id === m.senderId);
-      const avatarIdx = player?.avatarIndex || 0; // Default to 0 if not found
-
-
-
-      return html`
-                 <player-card .name="${m.senderName}" .avatarIndex="${avatarIdx}">
-                     <div slot="badges">
-                        <span>${m.content}</span>
-                     </div>
-                     <div slot="actions">
-                        ${isCurrentRound ? html`
-                             ${this._editingPrivateMsgId === m.senderId ? this._renderPrivateMsgForm() : html`
-                                 ${this.pendingPrivateMessages[m.senderId] ? html`
-                                     <div style="font-size: 0.75rem; color: #a78bfa; font-style: italic; margin-bottom: 0.25rem; text-align: right; max-width: 200px;">
-                                         Pending: "${this.pendingPrivateMessages[m.senderId]}"
-                                     </div>
-                                 ` : ''}
-                                 <button 
-                                     @click="${() => this._startEditingMsg(m.senderId)}" 
-                                     style="margin-left: auto; background-color: ${this.pendingPrivateMessages[m.senderId] ? '#8b5cf6' : '#4b5563'}; font-size: 0.75rem; padding: 0.25rem 0.5rem;"
-                                 >
-                                     ${this.pendingPrivateMessages[m.senderId] ? 'Edit Msg' : 'Private Msg'}
-                                 </button>
-                             `}
-                         ` : ''}
-                     </div>
-                 </player-card>
-             `})}
-             ${displayActions.length === 0 ? html`<div>No actions submitted for this round</div>` : ''}
-        </div>
-      </div>
-
-      <div class="panel">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h2>Characters</h2>
-             <button @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">
-                ${this._showPlayerManagement ? 'Hide' : 'Edit'}
-            </button>
-        </div>
 
             <div class="player-list">
                 ${this.players.filter(p => p.id !== this.directorId).map(p => {
-        const avatarIdx = p.avatarIndex || 0;
-        return html`
+      const avatarIdx = p.avatarIndex || 0;
+
+      // Find action for this player
+      const actionMsg = this.messages.find(m => m.isAction && m.senderId === p.id && m.round === actionsRound);
+
+      return html`
                       <player-card .name="${p.name}" .avatarIndex="${avatarIdx}">
-                              <div slot="badges" style="font-size: 0.75rem; color: #9ca3af;">
-                                  ${p.badges.map(b => b.name).join(', ')}
+                              <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
+                                  <div>${p.badges.map(b => b.name).join(', ')}</div>
+                                  ${actionMsg ? html`
+                                      <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6;">
+                                        ${actionMsg.content}
+                                      </div>
+                                  ` : ''}
                               </div>
                               <div slot="actions">
                                   ${this._editingPrivateMsgId === p.id ? this._renderPrivateMsgForm() : html`
@@ -333,11 +309,9 @@ export class DirectorDashboard extends LitElement {
                           </player-card>
                           `})}
                 ${this.players.filter(p => p.id !== this.directorId).length === 0 ? html`<div>No players created yet.</div>` : ''}
-            </div>        
-        
+
+       
         ${this._showPlayerManagement ? html`
-            <div style="margin-top: 2rem; border-bottom: 1px solid #374151; padding-bottom: 1rem;">
-                <h3>Create New Player</h3>
                 <player-card .name="${this._newPlayerName}" .avatarIndex="${this._newPlayerAvatar}">
                     <!-- Avatar Selection -->
                     <div 
@@ -378,6 +352,7 @@ export class DirectorDashboard extends LitElement {
                     <!-- Actions -->
                     <div slot="actions">
                         <button class="btn-primary" @click="${this._createPlayer}" ?disabled="${!this._newPlayerName}" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">Create</button>
+                        <button class="btn-primary" @click="${() => this._showPlayerManagement = false}" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">Cancel</button>
                     </div>
                 </player-card>
             </div>
@@ -392,7 +367,10 @@ export class DirectorDashboard extends LitElement {
                 ></avatar-selector>
             ` : ''}
 
-        ` : ''}
+        ` : ''} <!--show player management-->
+        ${!this._showPlayerManagement ? html`<button class="new_player" @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">+</button>` : ''}
+        </div>        
+
       </div>
     `;
   }

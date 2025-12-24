@@ -25,7 +25,6 @@ export interface Message {
 
 export interface Scene {
     description: string;
-    imageUrl?: string;
     playerStatuses?: Record<string, string>; // NEW: Snapshot of player statuses
 }
 
@@ -43,6 +42,18 @@ export interface GameState {
     submittedActions: string[]; // List of player IDs who have submitted actions
     messages: Message[];
     history: { round: number; scene: Scene }[];
+    isEnded?: boolean; // NEW
+}
+
+// NEW: Admin stats
+export interface SessionSummary {
+    sessionId: string;
+    gameName: string;
+    round: number;
+    playerCount: number;
+    onlineCount: number;
+    directorId: string; // NEW
+    isEnded: boolean; // NEW
 }
 
 export interface ServerToClientEvents {
@@ -52,12 +63,18 @@ export interface ServerToClientEvents {
     newScene: (scene: Scene) => void;
     newMessage: (message: Message) => void;
     error: (message: string) => void;
+    systemStatsUpdate: (stats: SessionSummary[]) => void; // NEW
 }
 
 export interface ClientToServerEvents {
     joinSession: (sessionId: string, playerId: string) => void;
     createSession: (token: string, name: string, gameName: string, avatarIndex?: number) => void; // Returns sessionId
     createPlayer: (sessionId: string, name: string, avatarIndex: number, badges: { name: string, hidden: boolean }[]) => void;
+    getSystemStats: () => void; // NEW
+    spectateSession: (sessionId: string) => void; // NEW
+    deleteSession: (sessionId: string) => void; // NEW
+    saveSession: (sessionId: string) => void; // NEW
+    endSession: (sessionId: string) => void; // NEW
     submitAction: (action: string, token: string) => void;
     postMessage: (content: string, token: string) => void;
     updateScene: (scene: Scene) => void;

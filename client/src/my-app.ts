@@ -6,6 +6,7 @@ import './components/director-dashboard';
 import './components/player-dashboard';
 import './components/scene-display';
 import './components/players-list';
+import './components/admin-dashboard';
 
 import './components/header-profile';
 import './components/exit-button';
@@ -18,7 +19,7 @@ export class MyApp extends LitElement {
   @state() private _gameState: GameState | null = null;
   @state() private _currentPlayer: Player | null = null;
   @state() private _playerName = '';
-  @state() private _gameName = ''; // NEW
+  @state() private _gameName = '';
   @state() private _sessionId = '';
   @state() private _selectedAvatarIndex = 0;
 
@@ -26,7 +27,12 @@ export class MyApp extends LitElement {
   @state() private _viewingRound = 1;
   @state() private _userToken = '';
 
-  // ... existing state/methods ...
+  // Admin State
+  @state() private _isAdmin = false;
+  @state() private _systemStats: any[] = [];
+
+  // Spectator State
+  @state() private _isSpectator = false;
 
   static styles = css`
     :host {
@@ -82,8 +88,6 @@ export class MyApp extends LitElement {
       height: calc(100vh - 60px);
       box-sizing: border-box;
     }
-    
-    /* ... other existing styles ... */
     
     .main-content {
       display: flex;
@@ -211,6 +215,14 @@ export class MyApp extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('admin') === 'true') {
+      this._isAdmin = true;
+    }
+    if (urlParams.get('spectator') === 'true') {
+      this._isSpectator = true;
+    }
+
     this._initToken();
     this._initSocket();
 
@@ -235,7 +247,11 @@ export class MyApp extends LitElement {
 
     this._socket.on('connect', () => {
       console.log('Connected to server');
-      this._checkAutoJoin();
+      if (this._isAdmin) {
+        this._socket?.emit('getSystemStats');
+      } else {
+        this._checkAutoJoin();
+      }
     });
 
     this._socket.on('gameStateUpdate', (state: GameState) => {
@@ -254,15 +270,23 @@ export class MyApp extends LitElement {
           this._currentPlayer = myPlayer;
           this._isInLobby = false;
         }
+        // If spectator, we exit lobby once we get state
+        if (this._isSpectator) {
+          this._isInLobby = false;
+        }
       }
 
       // Update viewing round if we are on the current round
       if (this._viewingRound < state.round && this._viewingRound === state.round - 1) {
         this._viewingRound = state.round;
       }
-      // Or just always sync if we were viewing the latest? 
-      // Let's ensure if we join, we view the current round
+
       if (!this._gameState) {
+        this._viewingRound = state.round;
+      }
+
+      // Force viewing round sync for spectators on first load
+      if (this._isSpectator && this._viewingRound === 1 && state.round > 1) {
         this._viewingRound = state.round;
       }
     });
@@ -278,12 +302,22 @@ export class MyApp extends LitElement {
         this._gameState = { ...this._gameState, messages: [...this._gameState.messages, message] };
       }
     });
+
+    this._socket.on('systemStatsUpdate', (stats: any[]) => {
+      this._systemStats = stats;
+    });
   }
 
   private _checkAutoJoin() {
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session');
     const playerId = urlParams.get('player');
+
+    if (this._isSpectator && sessionId) {
+      this._sessionId = sessionId;
+      this._socket?.emit('spectateSession', sessionId);
+      return;
+    }
 
     if (sessionId) {
       this._sessionId = sessionId;
@@ -332,27 +366,22 @@ export class MyApp extends LitElement {
     }
   }
 
-  private async _copyInviteLink() {
-    if (!this._gameState?.sessionId) return;
-    const url = window.location.origin + '?session=' + this._gameState.sessionId;
-    try {
-      await navigator.clipboard.writeText(url);
-      alert('Invite link copied to clipboard: ' + url);
-    } catch (err) {
-      console.error('Failed to copy: ', err);
-      prompt('Copy this link:', url);
-    }
-  }
-
   private _handleExit() {
     this._gameState = null;
     this._currentPlayer = null;
     this._sessionId = '';
     this._isInLobby = true;
+    this._isSpectator = false; // Reset spectator
+    this._isAdmin = false; // Reset admin (unless url param persists, handled by page reload primarily)
 
     const url = new URL(window.location.href);
     url.searchParams.delete('session');
+    url.searchParams.delete('player');
+    url.searchParams.delete('spectator');
     window.history.pushState({}, '', url);
+
+    // Potentially reload to clean state if needed, but managing state is better
+    window.location.href = '/';
   }
 
   private _handleUpdateScene(e: CustomEvent) {
@@ -410,8 +439,58 @@ export class MyApp extends LitElement {
     }
   }
 
+  private _refreshStats() {
+    this._socket?.emit('getSystemStats');
+  }
+
 
   render() {
+    if (this._isAdmin) {
+      return html`
+          <div style="padding: 2rem; background-color: #111827; min-height: 100vh;">
+              <admin-dashboard 
+                  .stats="${this._systemStats}"
+                  @refresh-stats="${this._refreshStats}"
+                  @save-session="${(e: CustomEvent) => this._socket?.emit('saveSession', e.detail.sessionId)}"
+                  @end-session="${(e: CustomEvent) => this._socket?.emit('endSession', e.detail.sessionId)}"
+                  @delete-session="${(e: CustomEvent) => this._socket?.emit('deleteSession', e.detail.sessionId)}"
+              ></admin-dashboard>
+          </div>
+        `;
+    }
+
+    if (this._isSpectator) {
+      return html`
+            <div style="padding: 1rem; background-color: #1f2937; color: #fbbf24; text-align: center; font-weight: bold; border-bottom: 1px solid #374151;">
+                SPECTATOR MODE - Viewing Session: ${this._sessionId}
+            </div>
+            <div class="container" style="height: calc(100vh - 50px);">
+                <div class="main-content">
+                  <scene-display 
+                    .scene="${this._viewingRound === this._gameState?.round ? this._gameState?.currentScene : undefined}" 
+                    .history="${this._gameState?.history || []}"
+                    .currentRound="${this._gameState?.round || 1}"
+                    .viewingRound="${this._viewingRound}"
+                    ?isDirector="${false}"
+                    .messages="${this._gameState?.messages || []}"
+                    .players="${this._gameState?.players || []}"
+                    .currentUserId="${'SPECTATOR'}"
+                    ?canChat="${false}"
+                    @view-round-change="${this._handleViewRoundChange}"
+                  ></scene-display>
+                </div>
+                <div class="sidebar">
+                  <players-list
+                    .players="${this._gameState?.players || []}"
+                    .playersOnline="${this._gameState?.players_online || []}"
+                    .director="${this._gameState?.director || null}"
+                    .currentUserId="${'SPECTATOR'}"
+                  ></players-list>
+                </div>
+            </div>
+        `;
+    }
+
     if (this._isInLobby) {
       return html`
         <div class="lobby">

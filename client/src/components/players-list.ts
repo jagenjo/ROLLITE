@@ -34,6 +34,12 @@ export class PlayersList extends LitElement {
       gap: 0.5rem;
     }
 
+    .is-me {
+        border: 2px solid #3b82f6; /* blue-500 */
+        border-radius: 0.5rem;
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+    }
+
     .director-badge {
       color: #fbbf24;
       font-size: 0.65rem;

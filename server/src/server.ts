@@ -108,6 +108,45 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('spectateSession', (sessionId) => {
+        const session = gameManager.getSession(sessionId);
+        if (session) {
+            socket.join(sessionId);
+            socket.emit('gameStateUpdate', session);
+            console.log(`Socket ${socket.id} started spectating session ${sessionId}`);
+        } else {
+            socket.emit('error', 'Session not found');
+        }
+    });
+
+    socket.on('deleteSession', (sessionId) => {
+        const success = gameManager.deleteSession(sessionId, fileStorage);
+        if (success) {
+            console.log(`Session ${sessionId} deleted by admin`);
+            // Broadcast systemStats update to all admins
+            const sessions = gameManager.getAllSessions();
+            io.emit('systemStatsUpdate', sessions as any);
+        }
+    });
+
+    socket.on('saveSession', (sessionId) => {
+        const success = gameManager.saveSession(sessionId, fileStorage);
+        if (success) {
+            console.log(`Session ${sessionId} saved manually`);
+        }
+    });
+
+    socket.on('endSession', (sessionId) => {
+        const session = gameManager.endSession(sessionId, fileStorage);
+        if (session) {
+            console.log(`Session ${sessionId} ended`);
+            io.to(sessionId).emit('gameStateUpdate', session);
+            // Broadcast stats update
+            const sessions = gameManager.getAllSessions();
+            io.emit('systemStatsUpdate', sessions as any);
+        }
+    });
+
     socket.on('submitAction', (action, token) => {
         console.log('Received submitAction:', action, 'from', token || socket.id);
         console.log('Rooms:', socket.rooms);
@@ -219,6 +258,11 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
+    });
+
+    socket.on('getSystemStats', () => {
+        const stats = gameManager.getAllSessions();
+        socket.emit('systemStatsUpdate', stats);
     });
 });
 

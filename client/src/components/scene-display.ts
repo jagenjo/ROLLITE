@@ -16,7 +16,7 @@ export class SceneDisplay extends LitElement {
 
   @state() private _isEditing = false;
   private _editDescription = '';
-  @state() private _editImageUrl = '';
+
   @state() private _chatInputValue = ''; // NEW
 
   static styles = css`
@@ -263,10 +263,8 @@ export class SceneDisplay extends LitElement {
   private _startEditing() {
     if (this.scene) {
       this._editDescription = this.scene.description;
-      this._editImageUrl = this.scene.imageUrl || '';
     } else {
       this._editDescription = '';
-      this._editImageUrl = '';
     }
     this._isEditing = true;
   }
@@ -278,8 +276,7 @@ export class SceneDisplay extends LitElement {
   private _updateScene() {
     this.dispatchEvent(new CustomEvent('update-scene', {
       detail: {
-        description: this._editDescription,
-        imageUrl: this._editImageUrl
+        description: this._editDescription
       },
       bubbles: true,
       composed: true
@@ -351,15 +348,7 @@ export class SceneDisplay extends LitElement {
                         placeholder="Describe the scene..."
                     ></textarea>
                 </div>
-                <div class="form-group">
-                    <label>Image URL (Optional)</label>
-                    <input
-                        type="text"
-                        .value="${this._editImageUrl}"
-                        @input="${(e: Event) => this._editImageUrl = (e.target as HTMLInputElement).value}"
-                        placeholder="https://example.com/image.jpg"
-                    />
-                </div>
+
                 <div class="button-row">
                     <button @click="${this._updateScene}" style="background-color: #10b981; border: none;">Save Changes</button>
                     <button @click="${this._cancelEditing}">Cancel</button>
@@ -368,11 +357,7 @@ export class SceneDisplay extends LitElement {
         ` : ''}
 
         ${!this._isEditing ? html`
-            ${displayScene?.imageUrl ? html`
-                <div class="image-container">
-                    <img src="${displayScene.imageUrl}" alt="Scene Image" />
-                </div>
-            ` : ''}
+
             <div class="description">
             ${displayScene?.description || "Waiting for the director to set the scene..."}
 

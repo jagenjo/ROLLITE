@@ -35,6 +35,18 @@ export class FileStorage {
         }
     }
 
+    deleteGame(gameId: string) {
+        const filePath = path.join(this.gamesDir, `${gameId}.json`);
+        try {
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log(`Deleted game file ${filePath}`);
+            }
+        } catch (error) {
+            console.error(`Failed to delete game ${gameId}:`, error);
+        }
+    }
+
     loadGame(gameId: string): any | null {
         const filePath = path.join(this.gamesDir, `${gameId}.json`);
         if (!fs.existsSync(filePath)) {
