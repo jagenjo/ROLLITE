@@ -3,6 +3,11 @@ import { GameState, Player, Scene, Message } from '../types';
 export class GameManager {
     private sessions: Map<string, GameState> = new Map();
     private players: Map<string, Player> = new Map();
+    private fileStorage?: any;
+
+    constructor(fileStorage?: any) {
+        this.fileStorage = fileStorage;
+    }
 
     createSession(playerId: string, directorName: string, gameName: string, avatarIndex?: number): string {
         const sessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -258,34 +263,36 @@ export class GameManager {
         }
     }
 
-    saveSession(sessionId: string, storage: any) {
+    saveSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
-        if (session) {
-            storage.saveGame(sessionId, session);
+        if (session && this.fileStorage) {
+            this.fileStorage.saveGame(sessionId, session);
             return true;
         }
         return false;
     }
 
-    deleteSession(sessionId: string, storage: any) {
-        if (this.sessions.has(sessionId)) {
+    deleteSession(sessionId: string) {
+        if (this.sessions.has(sessionId) && this.fileStorage) {
             this.sessions.delete(sessionId);
-            storage.deleteGame(sessionId);
+            this.fileStorage.deleteGame(sessionId);
 
             // Remove from index
-            const index = storage.loadGameIndex();
+            const index = this.fileStorage.loadGameIndex();
             index.sessions = index.sessions.filter((id: string) => id !== sessionId);
-            storage.saveGameIndex(index);
+            this.fileStorage.saveGameIndex(index);
             return true;
         }
         return false;
     }
 
-    endSession(sessionId: string, storage: any) {
+    endSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
         if (session) {
             session.isEnded = true;
-            storage.saveGame(sessionId, session);
+            if (this.fileStorage) {
+                this.fileStorage.saveGame(sessionId, session);
+            }
             return session;
         }
         return null;

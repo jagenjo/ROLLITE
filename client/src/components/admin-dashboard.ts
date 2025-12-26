@@ -82,8 +82,8 @@ export class AdminDashboard extends LitElement {
                               <th>Session ID</th>
                               <th>Game Name</th>
                               <th>Round</th>
-                              <th>Total Players</th>
-                              <th>Online</th>
+                              <th>Players/Online</th>
+                              <th>Status</th>
                               <th>Actions</th>
                           </tr>
                       </thead>
@@ -93,8 +93,13 @@ export class AdminDashboard extends LitElement {
                                   <td>${session.sessionId}</td>
                                   <td>${session.gameName}</td>
                                   <td>${session.round}</td>
-                                  <td>${session.playerCount}</td>
-                                  <td>${session.onlineCount}</td>
+                                  <td>${session.playerCount} / ${session.onlineCount}</td>
+                                  <td>
+                                      ${session.isEnded
+        ? html`<span style="color: #ef4444; font-weight: bold;">ENDED</span>`
+        : html`<span style="color: #10b981; font-weight: bold;">ACTIVE</span>`
+      }
+                                  </td>
                                   <td class="last-col">
                                       <button class="spectate-btn" @click="${() => this._spectate(session.sessionId)}">Spectate</button>
                                       

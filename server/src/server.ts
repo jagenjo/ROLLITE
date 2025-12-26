@@ -21,8 +21,8 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
     }
 });
 
-const gameManager = new GameManager();
 const fileStorage = new FileStorage();
+const gameManager = new GameManager(fileStorage);
 
 // Load existing state
 const index = fileStorage.loadGameIndex();
@@ -58,28 +58,27 @@ io.on('connection', (socket) => {
             const session = gameManager.getSession(sessionId);
             if (session) {
                 io.to(sessionId).emit('gameStateUpdate', session);
-                // Also explicitly tell the creator (director) that the player was created if needed, 
-                // but gameStateUpdate should cover the list update.
             }
         }
     });
 
     socket.on('joinSession', (sessionId, playerId) => {
-        const session = gameManager.joinSession(sessionId, playerId);
-        if (session) {
+        const session = gameManager.getSession(sessionId);
+        if (!session) {
+            socket.emit('error', 'Session not found');
+            return;
+        }
+
+        const joinedSession = gameManager.joinSession(sessionId, playerId);
+        if (joinedSession) {
             socket.join(sessionId);
-            io.to(sessionId).emit('gameStateUpdate', session);
+            io.to(sessionId).emit('gameStateUpdate', joinedSession);
         } else {
-            // Handle error: session not found or player not found
+            // Handle error: player not found
             console.log(`Failed to join session ${sessionId} with player ${playerId}`);
-            socket.emit('error', 'Failed to join session');
+            socket.emit('error', 'Player not found in session');
         }
     });
-
-    // resumeSession is largely redundant now if the client handles auto-join with token
-    // But we can keep it or remove it. The plan implied removing/updating it.
-    // If we rely on joinSession for everything (reconnects included), we can remove resumeSession.
-    // Let's remove it to simplify.
 
     socket.on('updateScene', (scene) => {
         for (const room of socket.rooms) {
@@ -93,8 +92,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('startRound', (sessionId) => {
-        // We can use room iteration or just use the passed ID (if trusted). 
-        // Using rooms is safer to ensure they are in the session (director).
         for (const room of socket.rooms) {
             if (room === sessionId) {
                 const session = gameManager.startRound(room);
@@ -120,28 +117,26 @@ io.on('connection', (socket) => {
     });
 
     socket.on('deleteSession', (sessionId) => {
-        const success = gameManager.deleteSession(sessionId, fileStorage);
+        const success = gameManager.deleteSession(sessionId);
         if (success) {
             console.log(`Session ${sessionId} deleted by admin`);
-            // Broadcast systemStats update to all admins
             const sessions = gameManager.getAllSessions();
             io.emit('systemStatsUpdate', sessions as any);
         }
     });
 
     socket.on('saveSession', (sessionId) => {
-        const success = gameManager.saveSession(sessionId, fileStorage);
+        const success = gameManager.saveSession(sessionId);
         if (success) {
             console.log(`Session ${sessionId} saved manually`);
         }
     });
 
     socket.on('endSession', (sessionId) => {
-        const session = gameManager.endSession(sessionId, fileStorage);
+        const session = gameManager.endSession(sessionId);
         if (session) {
             console.log(`Session ${sessionId} ended`);
             io.to(sessionId).emit('gameStateUpdate', session);
-            // Broadcast stats update
             const sessions = gameManager.getAllSessions();
             io.emit('systemStatsUpdate', sessions as any);
         }
@@ -149,18 +144,13 @@ io.on('connection', (socket) => {
 
     socket.on('submitAction', (action, token) => {
         console.log('Received submitAction:', action, 'from', token || socket.id);
-        console.log('Rooms:', socket.rooms);
         for (const room of socket.rooms) {
             if (room !== socket.id) {
-                console.log('Processing for room:', room);
-                // Use token as playerId if provided, else fall back to socket.id (though token should always be there now)
                 const playerId = token || socket.id;
                 const session = gameManager.submitAction(room, playerId, action);
                 if (session) {
                     console.log('Action submitted, emitting update to room:', room);
                     io.to(room).emit('gameStateUpdate', session);
-                } else {
-                    console.log('submitAction returned null or no change');
                 }
             }
         }
@@ -221,8 +211,6 @@ io.on('connection', (socket) => {
         }
     });
 
-
-
     socket.on('postMessage', (content, token) => {
         for (const room of socket.rooms) {
             if (room !== socket.id) {
@@ -249,9 +237,6 @@ io.on('connection', (socket) => {
     socket.on('disconnecting', () => {
         const affectedSessions = gameManager.handleDisconnect(socket.id);
         for (const session of affectedSessions) {
-            // Emit to the specific room (session ID) corresponding to this session
-            // Since the socket is still in the room (disconnecting), we can still broadcast,
-            // OR we can emit to the room ID explicitly which Socket.IO handles.
             io.to(session.sessionId).emit('gameStateUpdate', session);
         }
     });

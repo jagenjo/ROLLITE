@@ -14,6 +14,7 @@ export class DirectorDashboard extends LitElement {
   @property({ type: Boolean }) isRoundActive = false;
   @property({ type: String }) sessionId = '';
   @property({ type: String }) directorId = '';
+  @property({ type: Boolean }) isEnded = false;
   @property({ type: Object }) currentScene: Scene | null = null;
   @property({ type: Object }) pendingScene: Scene | null = null;
   @property({ type: Object }) pendingPrivateMessages: Record<string, string> = {};
@@ -241,6 +242,44 @@ export class DirectorDashboard extends LitElement {
 
 
 
+  private _saveGame() {
+    this.dispatchEvent(new CustomEvent('save-session', {
+      bubbles: true,
+      composed: true,
+      detail: { sessionId: this.sessionId }
+    }));
+  }
+
+  private _downloadGame() {
+    const gameData = {
+      sessionId: this.sessionId,
+      directorId: this.directorId,
+      messages: this.messages,
+      history: this.history,
+      players: this.players,
+      currentScene: this.currentScene,
+      round: this.round,
+      isEnded: this.isEnded
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameData, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `rollite_session_${this.sessionId}.json`);
+    document.body.appendChild(downloadAnchorNode); // required for firefox
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  }
+
+  private _endGame() {
+    if (confirm('Are you sure you want to END the game? This will disable player interactions.')) {
+      this.dispatchEvent(new CustomEvent('end-session', {
+        bubbles: true,
+        composed: true,
+        detail: { sessionId: this.sessionId }
+      }));
+    }
+  }
+
   render() {
     const displayRound = this.viewingRound;
     const isCurrentRound = displayRound === this.round;
@@ -260,7 +299,7 @@ export class DirectorDashboard extends LitElement {
             <h2>Characters (Round ${displayRound})</h2>
             <div style="display: flex; align-items: center; gap: 1rem;">
                 
-                ${isCurrentRound ? html`
+                ${isCurrentRound && !this.isEnded ? html`
                     ${this.pendingScene ? html`
                          <button @click="${this._startRound}" style="background-color: #3b82f6;">Start Round</button>
                     ` : html`
@@ -371,6 +410,21 @@ export class DirectorDashboard extends LitElement {
         ${!this._showPlayerManagement ? html`<button class="new_player" @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">+</button>` : ''}
         </div>        
 
+      </div>
+      
+      <div class="panel">
+          <h2>Game Actions</h2>
+          <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+             <button @click="${this._saveGame}" style="background-color: #10b981;">Save to Server</button>
+             <button @click="${this._downloadGame}" style="background-color: #3b82f6;">Download JSON</button>
+             ${!this.isEnded ? html`
+                <button @click="${this._endGame}" style="background-color: #ef4444;">End Game</button>
+             ` : html`
+                <div style="background-color: #ef4444; color: white; padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: bold; align-self: center;">
+                    GAME ENDED
+                </div>
+             `}
+          </div>
       </div>
     `;
   }

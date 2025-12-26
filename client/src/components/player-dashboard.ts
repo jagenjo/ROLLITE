@@ -84,6 +84,8 @@ export class PlayerDashboard extends LitElement {
     }
   `;
 
+  @property({ type: Boolean }) isEnded = false; // NEW
+
   private _submitAction() {
     if (this._action.trim()) {
       this.dispatchEvent(new CustomEvent('submit-action', {
@@ -101,6 +103,22 @@ export class PlayerDashboard extends LitElement {
       m.senderId === this.currentUserId &&
       m.round === this.round
     );
+
+    if (this.isEnded) {
+      return html`
+          <div class="panel">
+            <h2>Your Action</h2>
+            <div class="status-message" style="color: #ef4444; font-weight: bold;">
+                The game has ended. No further actions can be submitted.
+            </div>
+            ${submittedAction ? html`
+              <div class="submitted-action">
+                  <strong>You:</strong> ${submittedAction.content}
+              </div>
+            ` : ''}
+          </div>
+        `;
+    }
 
     return html`
       <div class="panel">

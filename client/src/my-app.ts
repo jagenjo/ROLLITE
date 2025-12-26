@@ -22,6 +22,7 @@ export class MyApp extends LitElement {
   @state() private _gameName = '';
   @state() private _sessionId = '';
   @state() private _selectedAvatarIndex = 0;
+  @state() private _errorMessage = '';
 
   @state() private _isInLobby = true;
   @state() private _viewingRound = 1;
@@ -306,6 +307,14 @@ export class MyApp extends LitElement {
     this._socket.on('systemStatsUpdate', (stats: any[]) => {
       this._systemStats = stats;
     });
+
+    this._socket.on('error', (message: string) => {
+      console.error('Socket Error:', message);
+      this._errorMessage = message;
+      // If we failed to join, ensure we stay in lobby and stop showing "Joining..."
+      this._isInLobby = true;
+      this._sessionId = '';
+    });
   }
 
   private _checkAutoJoin() {
@@ -443,6 +452,23 @@ export class MyApp extends LitElement {
     this._socket?.emit('getSystemStats');
   }
 
+  updated(changedProperties: Map<string, any>) {
+    // Dynamic Title Update
+    if (changedProperties.has('_isAdmin') || changedProperties.has('_isSpectator') || changedProperties.has('_gameState') || changedProperties.has('_currentPlayer')) {
+      let title = 'ROLLITE';
+      if (this._isAdmin) {
+        title += ' - Admin';
+      } else if (this._isSpectator) {
+        title += ' - Spectator';
+      } else if (this._gameState?.director.id === this._currentPlayer?.id) {
+        title += ' - Director';
+      } else if (this._currentPlayer) {
+        title += ' - Player';
+      }
+      document.title = title;
+    }
+  }
+
 
   render() {
     if (this._isAdmin) {
@@ -476,6 +502,7 @@ export class MyApp extends LitElement {
                     .players="${this._gameState?.players || []}"
                     .currentUserId="${'SPECTATOR'}"
                     ?canChat="${false}"
+                    .isEnded="${!!this._gameState?.isEnded}"
                     @view-round-change="${this._handleViewRoundChange}"
                   ></scene-display>
                 </div>
@@ -503,6 +530,11 @@ export class MyApp extends LitElement {
                     <p style="color: #9ca3af; font-size: 0.875rem;">${this._sessionId}</p>
                 </div>
             ` : html`
+                ${this._errorMessage ? html`
+                    <div style="background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 0.75rem; border-radius: 0.25rem; margin-bottom: 1rem; text-align: center;">
+                        ${this._errorMessage}
+                    </div>
+                ` : ''}
                 <div style="margin-bottom: 2rem; text-align: center;">
                     <h2 style="font-size: 1.25rem; color: #9ca3af;">Director Setup</h2>
                 </div>
@@ -557,6 +589,7 @@ export class MyApp extends LitElement {
             .players="${this._gameState?.players || []}"
             .currentUserId="${this._currentPlayer?.id || ''}"
             ?canChat="${this._gameState?.director.id === this._currentPlayer?.id || (this._gameState?.isRoundActive && !this._gameState?.submittedActions.includes(this._currentPlayer?.id || ''))}"
+            .isEnded="${!!this._gameState?.isEnded}"
             @view-round-change="${this._handleViewRoundChange}"
             @update-scene="${this._handleUpdateScene}"
             @message-sent="${this._handleMessageSent}"
@@ -574,10 +607,13 @@ export class MyApp extends LitElement {
               .sessionId="${this._gameState?.sessionId || ''}"
               .directorId="${this._gameState?.director.id || ''}"
               ?isRoundActive="${this._gameState?.isRoundActive}"
+              .isEnded="${!!this._gameState?.isEnded}"
               @next-round="${this._handleNextRound}"
               @start-round="${this._handleStartRound}"
               @create-player="${this._handleCreatePlayer}"
               @set-pending-private-message="${this._handleSetPendingPrivateMessage}"
+              @end-session="${(e: CustomEvent) => this._socket?.emit('endSession', e.detail.sessionId)}"
+              @save-session="${(e: CustomEvent) => this._socket?.emit('saveSession', e.detail.sessionId)}"
             ></director-dashboard>
           ` : html`
             <player-dashboard
@@ -586,6 +622,7 @@ export class MyApp extends LitElement {
               .round="${this._gameState?.round || 1}"
               .messages="${this._gameState?.messages || []}"
               .currentUserId="${this._currentPlayer?.id || ''}"
+              .isEnded="${!!this._gameState?.isEnded}"
               @submit-action="${this._handleSubmitAction}"
             ></player-dashboard>
           `}

@@ -13,6 +13,7 @@ export class SceneDisplay extends LitElement {
   @property({ type: Array }) messages: Message[] = [];
   @property({ type: String }) currentUserId = '';
   @property({ type: Boolean }) canChat = false;
+  @property({ type: Boolean }) isEnded = false; // NEW
 
   @state() private _isEditing = false;
   private _editDescription = '';
@@ -333,7 +334,8 @@ export class SceneDisplay extends LitElement {
       <div class="scene-container">
         <div class="header">
             <h2>${this.viewingRound === this.currentRound ? 'Current Scene' : `Round ${this.viewingRound}`}</h2>
-            ${this.isDirector && this.viewingRound === this.currentRound && !this._isEditing ? html`
+            ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
+            ${this.isDirector && this.viewingRound === this.currentRound && !this._isEditing && !this.isEnded ? html`
                 <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
             ` : ''}
         </div>
@@ -402,7 +404,7 @@ export class SceneDisplay extends LitElement {
                     `})}
                 </div>
                 
-                ${this.viewingRound === this.currentRound && this.canChat ? html`
+                ${this.viewingRound === this.currentRound && this.canChat && !this.isEnded ? html`
                     <div class="chat-input-area">
                         <input 
                             type="text" 
