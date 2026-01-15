@@ -211,6 +211,39 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('updatePlayerAvatar', (playerId, avatarIndex) => {
+        for (const room of socket.rooms) {
+            if (room !== socket.id) {
+                const session = gameManager.updatePlayerAvatar(room, playerId, avatarIndex);
+                if (session) {
+                    io.to(room).emit('gameStateUpdate', session);
+                }
+            }
+        }
+    });
+
+    socket.on('updatePlayerBackground', (playerId, background) => {
+        for (const room of socket.rooms) {
+            if (room !== socket.id) {
+                const session = gameManager.updatePlayerBackground(room, playerId, background);
+                if (session) {
+                    io.to(room).emit('gameStateUpdate', session);
+                }
+            }
+        }
+    });
+
+    socket.on('updatePlayerName', (playerId, name) => {
+        for (const room of socket.rooms) {
+            if (room !== socket.id) {
+                const session = gameManager.updatePlayerName(room, playerId, name);
+                if (session) {
+                    io.to(room).emit('gameStateUpdate', session);
+                }
+            }
+        }
+    });
+
     socket.on('postMessage', (content, token) => {
         for (const room of socket.rooms) {
             if (room !== socket.id) {

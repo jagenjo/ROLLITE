@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { Scene, Message, Player } from '../types';
 import './player-card';
 import './avatar-selector';
+import './character-sheet';
 
 @customElement('director-dashboard')
 export class DirectorDashboard extends LitElement {
@@ -17,26 +18,40 @@ export class DirectorDashboard extends LitElement {
   @property({ type: Boolean }) isEnded = false;
   @property({ type: Object }) currentScene: Scene | null = null;
   @property({ type: Object }) pendingScene: Scene | null = null;
-  @property({ type: Object }) pendingPrivateMessages: Record<string, string> = {};
+  @property({ type: Array }) playersOnline: Player[] = [];
 
   @state() private _newPlayerName = '';
   @state() private _newPlayerAvatar = 0;
   @state() private _newPlayerBadges = '';
   @state() private _showPlayerManagement = false;
-  @state() private _showAvatarModal = false;
+  @state() private _showAvatarModal = false; // For new player creation only
+
+  @state() private _selectedPlayerId: string | null = null; // For character sheet
 
   @state() private _editingPrivateMsgId: string | null = null;
   @state() private _tempPrivateMsg = '';
 
-  // Use a getter for cleaner template usage if prefered, or just use the private var directly.
   private get _isAvatarModalOpen() {
     return this._showAvatarModal;
   }
-  // ...
-  // ...
+
+  private _openCharacterSheet(playerId: string) {
+    this._selectedPlayerId = playerId;
+  }
+
+  private _closeCharacterSheet() {
+    this._selectedPlayerId = null;
+  }
+
+  private _onAvatarSelected(e: CustomEvent) {
+    const newIndex = e.detail.index;
+    this._newPlayerAvatar = newIndex;
+    this._showAvatarModal = false;
+  }
+
   private _startEditingMsg(playerId: string) {
     this._editingPrivateMsgId = playerId;
-    this._tempPrivateMsg = this.pendingPrivateMessages[playerId] || '';
+    this._tempPrivateMsg = this.pendingScene?.privateMessages?.[playerId] || '';
   }
 
   private _cancelPrivateMsg() {
@@ -56,24 +71,22 @@ export class DirectorDashboard extends LitElement {
     }
   }
 
-  // Helper render method for the inline form to reuse in both lists
   private _renderPrivateMsgForm() {
     return html`
-        <div style="margin-top: 0.5rem; background: #111827; padding: 0.5rem; border-radius: 0.25rem;">
-            <textarea
-                style="width: 100%; min-height: 60px; margin-bottom: 0.5rem; resize: vertical;"
-                .value="${this._tempPrivateMsg}"
-                @input="${(e: Event) => this._tempPrivateMsg = (e.target as HTMLTextAreaElement).value}"
-                placeholder="Write a private message..."
-            ></textarea>
-            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                <button @click="${this._cancelPrivateMsg}" style="background-color: #4b5563; font-size: 0.75rem;">Cancel</button>
-                <button @click="${this._savePrivateMsg}" style="background-color: #8b5cf6; font-size: 0.75rem;">Save</button>
-            </div>
+      <div style="margin-top: 0.5rem; background: #111827; padding: 0.5rem; border-radius: 0.25rem;">
+        <textarea
+            style="width: 100%; min-height: 60px; margin-bottom: 0.5rem; resize: vertical;"
+            .value="${this._tempPrivateMsg}"
+            @input="${(e: Event) => this._tempPrivateMsg = (e.target as HTMLTextAreaElement).value}"
+            placeholder="Write a private message..."
+        ></textarea>
+        <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+            <button @click="${this._cancelPrivateMsg}" style="background-color: #4b5563; font-size: 0.75rem;">Cancel</button>
+            <button @click="${this._savePrivateMsg}" style="background-color: #8b5cf6; font-size: 0.75rem;">Save</button>
         </div>
+      </div>
     `;
   }
-
 
   static styles = css`
     :host {
@@ -81,135 +94,120 @@ export class DirectorDashboard extends LitElement {
       padding: 1rem;
       color: white;
     }
-    
+
     .panel {
       background-color: #1f2937;
       padding: 1.5rem;
       border-radius: 0.5rem;
       margin-bottom: 1rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     }
 
     h2 {
       margin-top: 0;
       margin-bottom: 1rem;
+      color: #3b82f6; /* blue-500 */
       font-size: 1.25rem;
-      font-weight: bold;
-    }
-
-    h3 {
-        margin-top: 0;
-        margin-bottom: 0.5rem;
-        font-size: 1rem;
-        font-weight: bold;
-        color: #9ca3af;
-    }
-
-    button {
-      padding: 0.5rem 1rem;
-      background-color: #10b981; /* green-500 */
-      color: white;
-      border: none;
-      border-radius: 0.25rem;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    button:hover {
-      background-color: #059669;
-    }
-
-    .btn-primary {
-        background-color: #3b82f6;
-    }
-    .btn-primary:hover {
-        background-color: #2563eb;
-    }
-
-    input {
-        width: 100%;
-        padding: 0.5rem;
-        border-radius: 0.25rem;
-        border: 1px solid #374151;
-        background-color: #111827;
-        color: white;
-        box-sizing: border-box;
     }
 
     .player-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
 
-      image-rendering: pixelated;
-      position: absolute;
-    }
-
-    /* Reused styles for specific inputs within slots */
-    .card-input {
-        background: transparent;
+    button {
+        padding: 0.5rem 1rem;
+        border-radius: 0.25rem;
         border: none;
-        color: white;
-        padding: 0;
-        margin: 0;
-        width: 100%;
-        font-family: inherit;
-    }
-
-    .card-input:focus {
-        outline: none;
-        border-bottom: 1px solid #3b82f6;
-    }
-
-    .card-input::placeholder {
-        color: #6b7280;
-        font-style: italic;
-    }
-
-    .card-input.name-input,  .card-input.badges-input{
-      background-color: transparent;
-    }
-
-    .name-input {
+        cursor: pointer;
         font-weight: bold;
-        font-size: 0.9rem;
+        transition: background-color 0.2s;
+        color: white;
     }
 
-    .badges-input {
-        font-size: 0.75rem;
+    .btn-primary {
+      background-color: #3b82f6;
+    }
+    .btn-primary:hover {
+      background-color: #2563eb;
     }
 
     .new_player {
+        background-color: #10b981;
+        width: 100%;
         margin-top: 0.5rem;
-        font-size: 1.5em;
-        background-color: transparent;
-        border: 2px solid #404d69ff;
-        color: #566ea1ff;
+    }
+    .new_player:hover {
+        background-color: #059669;
+    }
+    
+    .card-input {
+        background: #111827; 
+        border: 1px solid #4b5563; 
+        color: white; 
+        padding: 0.25rem; 
+        border-radius: 0.25rem; 
+        width: 100%; 
+        box-sizing: border-box;
+    }
+    .name-input {
+      font-weight: bold;
+    }
+    .badges-input {
+      font-size: 0.8rem;
     }
 
-    .new_player:hover {
-        background-color: #404d69ff;
-        color: #566ea1ff;
+    .badge {
+        background-color: #4b5563;
+        color: #e5e7eb;
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+        display: flex;
+        align-items: center;
+        gap: 0.2rem;
+    }
+
+    .badge.hidden {
+      border: 1px dashed #fbbf24; 
+      background-color: #374151;
+      color: #fbbf24;
+    }
+
+    .status-text {
+      font-weight: bold;
+    }
+
+    .btn-cancel {
+      background-color: #4b5563;
+      color: white;
+    }
+
+    .btn-confirm {
+      background-color: #3b82f6;
+      color: white;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1f2937;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
     }
   `;
 
-  private _nextRound() {
-    this.dispatchEvent(new CustomEvent('next-round', {
-      bubbles: true,
-      composed: true
-    }));
-  }
-
-  private _startRound() {
-    this.dispatchEvent(new CustomEvent('start-round', {
-      bubbles: true,
-      composed: true
-    }));
-  }
-
   private _createPlayer() {
     if (!this._newPlayerName) return;
-    this._showPlayerManagement = false
+    this._showPlayerManagement = false;
     const badges = this._newPlayerBadges.split(',').map(b => b.trim()).filter(b => b).map(b => ({ name: b, hidden: false }));
 
     this.dispatchEvent(new CustomEvent('create-player', {
@@ -240,46 +238,6 @@ export class DirectorDashboard extends LitElement {
     }
   }
 
-
-
-  private _saveGame() {
-    this.dispatchEvent(new CustomEvent('save-session', {
-      bubbles: true,
-      composed: true,
-      detail: { sessionId: this.sessionId }
-    }));
-  }
-
-  private _downloadGame() {
-    const gameData = {
-      sessionId: this.sessionId,
-      directorId: this.directorId,
-      messages: this.messages,
-      history: this.history,
-      players: this.players,
-      currentScene: this.currentScene,
-      round: this.round,
-      isEnded: this.isEnded
-    };
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameData, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `rollite_session_${this.sessionId}.json`);
-    document.body.appendChild(downloadAnchorNode); // required for firefox
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  }
-
-  private _endGame() {
-    if (confirm('Are you sure you want to END the game? This will disable player interactions.')) {
-      this.dispatchEvent(new CustomEvent('end-session', {
-        bubbles: true,
-        composed: true,
-        detail: { sessionId: this.sessionId }
-      }));
-    }
-  }
-
   render() {
     const displayRound = this.viewingRound;
     const isCurrentRound = displayRound === this.round;
@@ -292,63 +250,105 @@ export class DirectorDashboard extends LitElement {
       actionsRound = this.round - 1;
     }
 
+    const selectedPlayer = this._selectedPlayerId
+      ? this.players.find(p => p.id === this._selectedPlayerId) || null
+      : null;
+
+    // Aggregate badges for selected player
+    const selectedPlayerBadges = selectedPlayer
+      ? (this.pendingScene?.playerBadges?.[selectedPlayer.id] || this.currentScene?.playerBadges?.[selectedPlayer.id] || [])
+      : [];
+    const formattedBadges = selectedPlayerBadges.map((b: any) => typeof b === 'string' ? { name: b, hidden: false } : b);
+
+    // Get selected player status
+    const selectedPlayerStatus = selectedPlayer
+      ? (this.pendingScene?.playerStatuses?.[selectedPlayer.id] || selectedPlayer.statusText || '')
+      : '';
 
     return html`
       <div class="panel">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h2>Characters (Round ${displayRound})</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Characters</h2>
             <div style="display: flex; align-items: center; gap: 1rem;">
-                
-                ${isCurrentRound && !this.isEnded ? html`
-                    ${this.pendingScene ? html`
-                         <button @click="${this._startRound}" style="background-color: #3b82f6;">Start Round</button>
-                    ` : html`
-                         ${this.isRoundActive ? html`
-                            <button @click="${this._nextRound}">Next Round</button>
-                         ` : html`
-                            <span style="color: #fbbf24; font-size: 0.875rem;">Set a scene to start round</span>
-                         `}
-                    `}
-                ` : ''}
             </div>
         </div>
 
             <div class="player-list">
                 ${this.players.filter(p => p.id !== this.directorId).map(p => {
       const avatarIdx = p.avatarIndex || 0;
-
-      // Find action for this player
+      const isOnline = this.playersOnline.some(po => po.id === p.id);
       const actionMsg = this.messages.find(m => m.isAction && m.senderId === p.id && m.round === actionsRound);
 
       return html`
-                      <player-card .name="${p.name}" .avatarIndex="${avatarIdx}">
-                              <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
-                                  <div>${p.badges.map(b => b.name).join(', ')}</div>
+                      <player-card 
+                        .name="${p.name}" 
+                        .avatarIndex="${avatarIdx}" 
+                        .online="${isOnline}"
+                        style="cursor: pointer;"
+                        @click="${() => this._openCharacterSheet(p.id)}"
+                      >
+                            <div 
+                                slot="avatar"
+                                class="avatar-container"
+                                style="position: relative;"
+                            >
+                                <img 
+                                    src="/characters.jpg" 
+                                    class="avatar-image" 
+                                    style="transform: translate(-${(avatarIdx % 8) * 48}px, -${Math.floor(avatarIdx / 8) * 48}px); width: 384px;"
+                                >
+                            </div>
+
+                            <div slot="status">
+                                <div 
+                                    class="status-text" 
+                                    style="font-size: 0.8rem; margin-bottom: 0.25rem;"
+                                >
+                                    ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || 'No status')}
+                                </div>
+                            </div>
+
+                                  <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
+                                      <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+                                          ${(this.pendingScene?.playerBadges?.[p.id] || this.currentScene?.playerBadges?.[p.id] || []).map((b: any) => {
+        const badgeName = typeof b === 'string' ? b : b.name;
+        const isHidden = typeof b === 'string' ? false : b.hidden;
+        return html`
+                                                  <span class="badge ${isHidden ? 'hidden' : ''}" title="${isHidden ? 'Hidden Badge' : ''}">
+                                                      ${badgeName}
+                                                  </span>
+                                              `;
+      })}
+                                      </div>
+
                                   ${actionMsg ? html`
-                                      <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6;">
+                                      <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6; margin-top: 0.25rem;">
                                         ${actionMsg.content}
                                       </div>
                                   ` : ''}
                               </div>
-                              <div slot="actions">
+                              <div slot="actions" @click="${(e: Event) => e.stopPropagation()}">
                                   ${this._editingPrivateMsgId === p.id ? this._renderPrivateMsgForm() : html`
                                       <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                          ${this.pendingPrivateMessages[p.id] ? html`
+                                          ${this.pendingScene?.privateMessages?.[p.id] ? html`
                                               <div style="font-size: 0.75rem; color: #a78bfa; font-style: italic; margin-right: 0.5rem; max-width: 200px; text-align: right;">
-                                                  Pending: "${this.pendingPrivateMessages[p.id]}"
+                                                  Pending: "${this.pendingScene?.privateMessages?.[p.id]}"
                                               </div>
                                           ` : ''}
-                                          <button @click="${() => this._startEditingMsg(p.id)}" style="background-color: ${this.pendingPrivateMessages[p.id] ? '#8b5cf6' : '#4b5563'};">
-                                              ${this.pendingPrivateMessages[p.id] ? 'Edit Private Msg' : 'Private Msg'}
+                                          <button 
+                                              @click="${() => this._startEditingMsg(p.id)}" 
+                                              style="background-color: ${this.pendingScene?.privateMessages?.[p.id] ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
+                                              title="${this.pendingScene?.privateMessages?.[p.id] ? 'Edit Private Message' : 'Send Private Message'}"
+                                          >
+                                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                              </svg>
                                           </button>
-                                          <button @click="${() => this._copyInviteLink(p.id)}">Copy Invite Link</button>
                                       </div>
                                   `}
                               </div>
                           </player-card>
-                          `})}
-                ${this.players.filter(p => p.id !== this.directorId).length === 0 ? html`<div>No players created yet.</div>` : ''}
-
+                  `})}
        
         ${this._showPlayerManagement ? html`
                 <player-card .name="${this._newPlayerName}" .avatarIndex="${this._newPlayerAvatar}">
@@ -356,14 +356,14 @@ export class DirectorDashboard extends LitElement {
                     <div 
                         slot="avatar"
                         class="avatar-container"
-                        style="cursor: pointer; border: 2px solid #3b82f6; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; position: relative;"
+                        style="cursor: pointer; border: 2px solid #3b82f6; width: 48px; height: 48px; border-radius: 50%; overflow: hidden; position: relative;"
                         @click="${() => this._showAvatarModal = true}"
                         title="Click to change avatar"
                     >
                          <img 
                             src="/characters.jpg" 
                             class="avatar-image"
-                            style="width: 320px; transform: translate(-${(this._newPlayerAvatar % 8) * 40}px, -${Math.floor(this._newPlayerAvatar / 8) * 40}px);" 
+                            style="width: 384px; transform: translate(-${(this._newPlayerAvatar % 8) * 48}px, -${Math.floor(this._newPlayerAvatar / 8) * 48}px);" 
                             alt="Selected Avatar" 
                         >
                     </div>
@@ -378,16 +378,6 @@ export class DirectorDashboard extends LitElement {
                             @input="${(e: Event) => this._newPlayerName = (e.target as HTMLInputElement).value}"
                         />
                     </div>
-                    <div slot="badges" style="width: 100%;">
-                        <input 
-                            type="text" 
-                            class="card-input badges-input"
-                            placeholder="Badges (comma separated)..." 
-                            .value="${this._newPlayerBadges}"
-                            @input="${(e: Event) => this._newPlayerBadges = (e.target as HTMLInputElement).value}"
-                        />
-                    </div>
-
                     <!-- Actions -->
                     <div slot="actions">
                         <button class="btn-primary" @click="${this._createPlayer}" ?disabled="${!this._newPlayerName}" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">Create</button>
@@ -395,37 +385,33 @@ export class DirectorDashboard extends LitElement {
                     </div>
                 </player-card>
             </div>
-
-            <!-- Avatar Selection Modal -->
-            <!-- Avatar Selection Modal -->
-            ${this._isAvatarModalOpen ? html`
-                <avatar-selector
-                    .selectedAvatarIndex="${this._newPlayerAvatar}"
-                    @close="${() => this._showAvatarModal = false}"
-                    @avatar-selected="${(e: CustomEvent) => { this._newPlayerAvatar = e.detail.index; this._showAvatarModal = false; }}"
-                ></avatar-selector>
-            ` : ''}
-
         ` : ''} <!--show player management-->
+        
         ${!this._showPlayerManagement ? html`<button class="new_player" @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">+</button>` : ''}
         </div>        
 
       </div>
       
-      <div class="panel">
-          <h2>Game Actions</h2>
-          <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-             <button @click="${this._saveGame}" style="background-color: #10b981;">Save to Server</button>
-             <button @click="${this._downloadGame}" style="background-color: #3b82f6;">Download JSON</button>
-             ${!this.isEnded ? html`
-                <button @click="${this._endGame}" style="background-color: #ef4444;">End Game</button>
-             ` : html`
-                <div style="background-color: #ef4444; color: white; padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: bold; align-self: center;">
-                    GAME ENDED
-                </div>
-             `}
-          </div>
-      </div>
+      <!-- Character Sheet Modal -->
+      <character-sheet
+        .player="${selectedPlayer}"
+        .isOpen="${!!selectedPlayer}"
+        .isDirector="${true}"
+        .badges="${formattedBadges}"
+        .statusText="${selectedPlayerStatus}"
+        .sessionId="${this.sessionId}"
+        @close="${this._closeCharacterSheet}"
+      ></character-sheet>
+      
+      <!-- Avatar Selection Modal (Global) -->
+      ${this._isAvatarModalOpen ? html`
+        <avatar-selector
+            .selectedAvatarIndex="${this._newPlayerAvatar}"
+            @close="${() => this._showAvatarModal = false}"
+            @avatar-selected="${this._onAvatarSelected}"
+        ></avatar-selector>
+      ` : ''}
+      
     `;
   }
 }

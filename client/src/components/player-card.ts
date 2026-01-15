@@ -11,35 +11,38 @@ export class PlayerCard extends LitElement {
   static styles = css`
     :host {
       display: block;
+      width: calc( 100% - 4px );
     }
 
     .player-card {
       background: #374151;
-      padding: 0.5rem;
+      padding: 0.75rem;
       border-radius: 0.5rem;
-      display: flex;
-      flex-direction: row;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.75rem;
       position: relative;
       margin-bottom: 0.5rem;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     }
 
     .player-card.is-me {
-      border: 1px solid #3b82f6;
+      border: 1px solid #f6ca3bff;
+      box-shadow: 0 0 0 1px #f6ca3bff;
     }
 
     /* Online Status Dot */
     .status-dot {
         position: absolute;
-        top: 4px;
-        left: 4px;
-        width: 8px;
-        height: 8px;
+        top: -2px;
+        left: -2px;
+        width: 10px;
+        height: 10px;
         border-radius: 50%;
         background-color: #9ca3af; /* Gray/Offline */
-        border: 1px solid #1f2937;
-        z-index: 1;
+        border: 2px solid #1f2937;
+        z-index: 10;
     }
     
     .status-dot.online {
@@ -47,14 +50,19 @@ export class PlayerCard extends LitElement {
         box-shadow: 0 0 4px #10b981;
     }
 
-    .avatar-container {
+    .avatar-wrapper {
+      position: relative;
       width: 48px;
       height: 48px;
+    }
+
+    .avatar-container {
+      width: 100%;
+      height: 100%;
       border-radius: 50%;
       overflow: hidden;
       background-color: #111827;
       position: relative;
-      flex-shrink: 0;
     }
 
     .avatar-image {
@@ -65,33 +73,31 @@ export class PlayerCard extends LitElement {
     }
 
     .player-info {
-      flex: 1;
-      text-align: left;
       display: flex;
       flex-direction: column;
       gap: 0.25rem;
-      overflow: hidden;
-      min-width: 0; /* For flex truncation */
+      min-width: 0; /* Crucial for text truncation in grid/flex */
+      width: 100%;
     }
 
     .header-row {
         display: flex;
-        justify-content: space-between;
         align-items: center;
         width: 100%;
+        gap: 0.5rem;
     }
 
     .name-area {
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        overflow: hidden;
-        margin-right: 0.5rem;
+        flex: 1;
+        min-width: 0;
     }
 
     .player-name {
       font-weight: bold;
-      font-size: 0.9rem; /* Standardized size */
+      font-size: 0.95rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -99,23 +105,26 @@ export class PlayerCard extends LitElement {
     }
 
     ::slotted([slot="status"]) {
-        flex-shrink: 0; 
-        max-width: 50%;
+        font-size: 0.8rem;
+        color: #9ca3af;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
     }
 
     .badges-container {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.1rem;
-        /* justify-content center removed, let it flow naturally */
-        max-width: 100%;
+        gap: 0.25rem;
     }
     
-    /* Allow slots to style themselves, but provide container */
     .actions-container {
         display: flex;
         flex-direction: column;
         align-items: flex-end;
+        justify-content: center;
+        gap: 0.25rem;
     }
   `;
 
@@ -127,18 +136,19 @@ export class PlayerCard extends LitElement {
 
     return html`
       <div class="player-card">
-        <div class="status-dot ${this.online ? 'online' : ''}"></div>
-        
-        <!-- Avatar Slot allows overriding behavior (like click-to-edit) -->
-        <div class="avatar-container">
-            <slot name="avatar">
-                <img 
-                    src="/characters.jpg" 
-                    class="avatar-image" 
-                    style="transform: translate(${xOffset}px, ${yOffset}px);"
-                    alt="Avatar"
-                >
-            </slot>
+        <div class="avatar-wrapper">
+            <div class="status-dot ${this.online ? 'online' : ''}"></div>
+            <!-- Avatar Slot allows overriding behavior (like click-to-edit) -->
+            <div class="avatar-container">
+                <slot name="avatar">
+                    <img 
+                        src="/characters.jpg" 
+                        class="avatar-image" 
+                        style="transform: translate(${xOffset}px, ${yOffset}px);"
+                        alt="Avatar"
+                    >
+                </slot>
+            </div>
         </div>
 
         <div class="player-info">
@@ -149,9 +159,8 @@ export class PlayerCard extends LitElement {
                     </slot>
                     <slot name="name-extras"></slot>
                 </div>
-                <slot name="status"></slot>
             </div>
-
+            <slot name="status"></slot>
             <div class="badges-container">
                 <slot name="badges"></slot>
             </div>

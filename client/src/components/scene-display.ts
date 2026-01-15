@@ -12,8 +12,10 @@ export class SceneDisplay extends LitElement {
   @property({ type: Boolean }) isDirector = false;
   @property({ type: Array }) messages: Message[] = [];
   @property({ type: String }) currentUserId = '';
+  @property({ type: String }) directorId = '';
   @property({ type: Boolean }) canChat = false;
   @property({ type: Boolean }) isEnded = false; // NEW
+  @property({ type: Boolean }) isRoundActive = false; // NEW
 
   @state() private _isEditing = false;
   private _editDescription = '';
@@ -24,7 +26,8 @@ export class SceneDisplay extends LitElement {
     /* ... existing styles ... */
     :host {
       display: block;
-      padding: 1rem;
+      padding-left: 1rem;
+      padding-right: 1rem;
       color: white;
     }
 
@@ -76,7 +79,8 @@ export class SceneDisplay extends LitElement {
       padding: 1rem;
       font-size: 1.125rem;
       color: #e5e7eb;
-      background: #000
+      background: #000;
+      min-height: 400px;
     }
 
     .navigation {
@@ -132,8 +136,8 @@ export class SceneDisplay extends LitElement {
       width: 100%;
       padding: 0.5rem;
       border-radius: 0.25rem;
-      border: 1px solid #374151;
-      background-color: #111827;
+      border: 1px solid #222;
+      background-color: #000;
       color: white;
       box-sizing: border-box;
       font-family: inherit;
@@ -154,7 +158,7 @@ export class SceneDisplay extends LitElement {
         padding: 1em 1.5rem 1.5rem 1.5rem;
         border-top: 1px solid #4b5563;
         margin-top: 0;
-        background-color:#1f2937;
+        background-color: #111;
     }
 
     .chat-header-text {
@@ -175,7 +179,7 @@ export class SceneDisplay extends LitElement {
 
     .message {
       padding: 0.5rem 0.75rem;
-      border-radius: 0.5rem;
+      /*border-radius: 0.5rem;*/
       max-width: 90%;
       word-wrap: break-word;
       font-size: 0.95rem;
@@ -186,7 +190,7 @@ export class SceneDisplay extends LitElement {
 
     .message.own {
       align-self: flex-end;
-      background-color: #3b82f6; /* blue-500 */
+      background-color: #3c3c3c; /* blue-500 */
       color: white;
       flex-direction: row-reverse;
     }
@@ -198,8 +202,17 @@ export class SceneDisplay extends LitElement {
 
     .message.other {
       align-self: flex-start;
-      background-color: #374151; /* gray-700 */
-      color: #e5e7eb; /* gray-200 */
+      background-color: #242424; /* gray-700 */
+      color: #aaa; /* gray-200 */
+    }
+
+    .message.director {
+      background-color: #000;
+      color: white;
+    }
+
+    .message.director .message-avatar-container, .message.director .message-sender {
+      display: none;
     }
 
     .message-content {
@@ -247,6 +260,21 @@ export class SceneDisplay extends LitElement {
     .private-message .content {
       padding: 0.2rem;
     }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1f2937;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
+    }
   `;
 
   private _handlePrevRound() {
@@ -258,6 +286,20 @@ export class SceneDisplay extends LitElement {
   private _handleNextRound() {
     this.dispatchEvent(new CustomEvent('view-round-change', {
       detail: { round: this.viewingRound + 1 }
+    }));
+  }
+
+  private _startRound() {
+    this.dispatchEvent(new CustomEvent('start-round', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _triggerNextRound() {
+    this.dispatchEvent(new CustomEvent('next-round', {
+      bubbles: true,
+      composed: true
     }));
   }
 
@@ -333,11 +375,20 @@ export class SceneDisplay extends LitElement {
     return html`
       <div class="scene-container">
         <div class="header">
-            <h2>${this.viewingRound === this.currentRound ? 'Current Scene' : `Round ${this.viewingRound}`}</h2>
-            ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
-            ${this.isDirector && this.viewingRound === this.currentRound && !this._isEditing && !this.isEnded ? html`
-                <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
-            ` : ''}
+            <h2>${this.viewingRound === this.currentRound ? 'Scene' : `Round ${this.viewingRound}`}</h2>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
+                ${this.isDirector && this.viewingRound === this.currentRound && !this.isEnded ? html`
+                    ${!this.isRoundActive ? html`
+                        <button @click="${this._startRound}" style="background-color: #3b82f6; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Start Round</button>
+                    ` : html`
+                         <button @click="${this._triggerNextRound}" style="background-color: #fbbf24; color: #1f2937; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Next Round</button>
+                    `}
+                    ${!this._isEditing ? html`
+                        <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
+                    ` : ''}
+                ` : ''}
+            </div>
         </div>
 
         ${this._isEditing && this.viewingRound === this.currentRound ? html`
@@ -371,6 +422,21 @@ export class SceneDisplay extends LitElement {
                   </div>
                 `)}
             ` : ''}
+
+            ${this.messages.filter(m =>
+      m.round === this.viewingRound &&
+      m.isAction &&
+      (this.isDirector || m.senderId === this.currentUserId)
+    ).map(actionMsg => html`
+                <div style="margin-top: 1rem; padding: 0.5rem; background: #374151; border-radius: 0.25rem; border-left: 3px solid #fbbf24;">
+                     <div style="font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.25rem; font-weight: bold;">
+                        ${actionMsg.senderId === this.currentUserId ? 'YOUR ACTION' : `ACTION: ${actionMsg.senderName}`}
+                     </div>
+                     <div style="color: #e5e7eb; font-style: italic;">
+                        "${actionMsg.content}"
+                     </div>
+                </div>
+            `)}
             </div>
 
 
@@ -387,7 +453,7 @@ export class SceneDisplay extends LitElement {
       const yOffset = -(row * 32);
 
       return html`
-                        <div class="message ${msg.senderId === this.currentUserId ? 'own' : 'other'}">
+                        <div class="message ${msg.senderId === this.currentUserId ? 'own' : msg.senderId === this.directorId ? 'director' : 'other'}">
                             <div class="message-avatar-container">
                                 <img 
                                     src="/characters.jpg" 

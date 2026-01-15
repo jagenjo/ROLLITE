@@ -21,7 +21,8 @@ export class PlayerDashboard extends LitElement {
   static styles = css`
     :host {
       display: block;
-      padding: 1rem;
+      padding-left: 1rem;
+      padding-right: 1rem;
       color: white;
     }
 
@@ -107,7 +108,7 @@ export class PlayerDashboard extends LitElement {
     if (this.isEnded) {
       return html`
           <div class="panel">
-            <h2>Your Action</h2>
+            <!--<h2>Your Action</h2>-->
             <div class="status-message" style="color: #ef4444; font-weight: bold;">
                 The game has ended. No further actions can be submitted.
             </div>
@@ -122,7 +123,7 @@ export class PlayerDashboard extends LitElement {
 
     return html`
       <div class="panel">
-        <h2>Your Action</h2>
+        <!--<h2>Your Action</h2>-->
         ${this.isRoundActive ? html`
           ${!submittedAction ? html`
             <textarea

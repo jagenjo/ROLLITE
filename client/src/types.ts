@@ -7,9 +7,8 @@ export interface Player {
     id: string;
     name: string;
     avatarIndex?: number;
-    badges: Badge[];
     statusText?: string;
-    pendingStatusText?: string; // NEW: Buffered status update
+    background?: string; // NEW
 }
 
 export interface Message {
@@ -26,6 +25,8 @@ export interface Message {
 export interface Scene {
     description: string;
     playerStatuses?: Record<string, string>; // NEW: Snapshot of player statuses
+    privateMessages?: Record<string, string>;
+    playerBadges?: Record<string, Badge[]>;
 }
 
 export interface GameState {
@@ -36,7 +37,6 @@ export interface GameState {
     players_online: Player[];
     currentScene: Scene | null;
     pendingScene?: Scene | null; // For director only (draft)
-    pendingPrivateMessages?: Record<string, string>; // NEW: Staged private messages { playerId: message }
     round: number;
     isRoundActive: boolean; // True if waiting for player actions
     submittedActions: string[]; // List of player IDs who have submitted actions
@@ -83,5 +83,8 @@ export interface ClientToServerEvents {
     addBadge: (playerId: string, badge: string, hidden: boolean) => void;
     removeBadge: (playerId: string, badgeIndex: number) => void;
     updatePlayerStatus: (playerId: string, status: string) => void; // NEW
+    updatePlayerAvatar: (playerId: string, avatarIndex: number) => void; // NEW
+    updatePlayerName: (playerId: string, name: string) => void; // NEW
+    updatePlayerBackground: (playerId: string, background: string) => void; // NEW
     setPendingPrivateMessage: (playerId: string, message: string) => void; // NEW
 }

@@ -11,7 +11,7 @@ export class GameManager {
 
     createSession(playerId: string, directorName: string, gameName: string, avatarIndex?: number): string {
         const sessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
-        const director: Player = { id: playerId, name: directorName, avatarIndex, badges: [] };
+        const director: Player = { id: playerId, name: directorName, avatarIndex };
 
         const initialState: GameState = {
             sessionId,
@@ -21,7 +21,6 @@ export class GameManager {
             players_online: [director],
             currentScene: null,
             pendingScene: null, // For director only (draft)
-            pendingPrivateMessages: {},
             round: 1,
             isRoundActive: false,
             submittedActions: [],
@@ -41,15 +40,26 @@ export class GameManager {
         const player: Player = {
             id: newPlayerId,
             name,
-            avatarIndex,
-            badges
+            avatarIndex
         };
         session.players.push(player);
+
+        // Add initial badges to current or pending scene if provided
+        if (badges.length > 0) {
+            let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
+            if (!targetScene && !session.isRoundActive) {
+                // Initialize pending scene if needed
+                if (!session.pendingScene) session.pendingScene = { description: '' };
+                targetScene = session.pendingScene;
+            }
+
+            if (targetScene) {
+                if (!targetScene.playerBadges) targetScene.playerBadges = {};
+                targetScene.playerBadges[newPlayerId] = badges;
+            }
+        }
         return player;
     }
-
-
-
 
     joinSession(sessionId: string, playerId: string): GameState | null {
         const session = this.sessions.get(sessionId);
@@ -75,8 +85,7 @@ export class GameManager {
             if (session.director.name === playerName) {
                 session.players_online.push({
                     id: key,
-                    name: playerName,
-                    badges: session.players.find(p => p.name === playerName)?.badges || []
+                    name: playerName
                 });
                 return session;
             }
@@ -93,8 +102,14 @@ export class GameManager {
         if (!session) return null;
 
         // Save as pending scene only. Director must "Start Round" to publish.
-        session.pendingScene = scene;
-        // Do NOT set currentScene or isRoundActive yet.
+        // Enhance: Preserve existing pending data if updating just description?
+        // For now, assuming standard flow.
+        if (!session.pendingScene) {
+            session.pendingScene = scene;
+        } else {
+            // Update description but keep existing pending data
+            session.pendingScene.description = scene.description;
+        }
         return session;
     }
 
@@ -102,32 +117,11 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        if (session.pendingScene) {
-            session.currentScene = session.pendingScene;
-            session.isRoundActive = true;
-            session.pendingScene = null;
-        } else if (!session.isRoundActive && session.currentScene) {
-            // If no pending scene but we want to start (maybe re-start?), just set active
-            session.isRoundActive = true;
-        }
+        const sceneSource = session.pendingScene;
 
-        // Apply pending player statuses
-        session.players.forEach(p => {
-            if (p.pendingStatusText !== undefined) {
-                p.statusText = p.pendingStatusText;
-                p.pendingStatusText = undefined;
-            }
-        });
-        session.players_online.forEach(p => {
-            if (p.pendingStatusText !== undefined) {
-                p.statusText = p.pendingStatusText;
-                p.pendingStatusText = undefined;
-            }
-        });
-
-        // Process pending private messages
-        if (session.pendingPrivateMessages) {
-            Object.entries(session.pendingPrivateMessages).forEach(([playerId, content]) => {
+        // Process private messages from pending scene
+        if (sceneSource?.privateMessages) {
+            Object.entries(sceneSource.privateMessages).forEach(([playerId, content]) => {
                 if (!content) return;
                 const message: Message = {
                     id: Math.random().toString(36).substring(7),
@@ -141,7 +135,26 @@ export class GameManager {
                 };
                 session.messages.push(message);
             });
-            session.pendingPrivateMessages = {};
+        }
+
+        // Apply pending player statuses from pending scene
+        if (sceneSource?.playerStatuses) {
+            Object.entries(sceneSource.playerStatuses).forEach(([playerId, status]) => {
+                const player = session.players.find(p => p.id === playerId);
+                if (player) player.statusText = status;
+
+                const onlinePlayer = session.players_online.find(p => p.id === playerId);
+                if (onlinePlayer) onlinePlayer.statusText = status;
+            });
+        }
+
+        if (sceneSource) {
+            session.currentScene = sceneSource;
+            session.isRoundActive = true;
+            session.pendingScene = null;
+        } else if (!session.isRoundActive && session.currentScene) {
+            // If no pending scene but we want to start (maybe re-start?), just set active
+            session.isRoundActive = true;
         }
 
         return session;
@@ -224,16 +237,26 @@ export class GameManager {
             });
             session.currentScene.playerStatuses = statuses;
 
+            // Preserve badges for the next round
+            const currentBadges = JSON.parse(JSON.stringify(session.currentScene.playerBadges));
+
             session.history.push({
                 round: session.round,
                 scene: session.currentScene
             });
+
+            // Initialize pending scene with preserved badges
+            session.pendingScene = {
+                description: '',
+                playerBadges: currentBadges // Carry over badges (deep copied)
+            };
+        } else {
+            session.pendingScene = null; // Clear any pending drafts if no previous scene to inherit from
         }
 
         session.round++;
         session.submittedActions = [];
         session.currentScene = null; // Clear scene description
-        session.pendingScene = null; // Clear any pending drafts
         session.isRoundActive = false; // Wait for director to update scene
         // Optionally clear action messages or keep them? 
         // For now, we keep them as history.
@@ -254,13 +277,7 @@ export class GameManager {
 
     restoreSession(session: GameState) {
         this.sessions.set(session.sessionId, session);
-        // Ensure legacy sessions have badges array if missing
-        session.players.forEach(p => {
-            if (!p.badges) p.badges = [];
-        });
-        if (session.director && !session.director.badges) {
-            session.director.badges = [];
-        }
+        // Legacy checks removed
     }
 
     saveSession(sessionId: string) {
@@ -302,23 +319,22 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const player = session.players.find(p => p.id === playerId);
-        const playerOnline = session.players_online.find(p => p.id === playerId);
-
-        // Sanitize legacy strings if any persist (optional safety)
-
-        if (player) {
-            if (!player.badges) player.badges = [];
-            player.badges.push({ name: badgeName, hidden });
+        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
+        if (!targetScene) {
+            if (!session.isRoundActive) {
+                if (!session.pendingScene) session.pendingScene = { description: '' };
+                targetScene = session.pendingScene;
+            } else {
+                // Should not happen if isRoundActive is true but currentScene is null?
+                // But just in case
+                return null;
+            }
         }
 
-        // Sync online player too if needed
-        if (playerOnline) {
-            if (!playerOnline.badges) playerOnline.badges = [];
-            // Avoid duplication if they point to different refs
-            if (playerOnline !== player) {
-                playerOnline.badges.push({ name: badgeName, hidden });
-            }
+        if (targetScene) {
+            if (!targetScene.playerBadges) targetScene.playerBadges = {};
+            if (!targetScene.playerBadges[playerId]) targetScene.playerBadges[playerId] = [];
+            targetScene.playerBadges[playerId].push({ name: badgeName, hidden });
         }
 
         return session;
@@ -327,8 +343,12 @@ export class GameManager {
     setPendingPrivateMessage(sessionId: string, playerId: string, content: string): GameState | null {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
-        if (!session.pendingPrivateMessages) session.pendingPrivateMessages = {};
-        session.pendingPrivateMessages[playerId] = content;
+        if (!session.pendingScene) {
+            // Initialize pending scene if it doesn't exist so we can store messages
+            session.pendingScene = { description: '' };
+        }
+        if (!session.pendingScene.privateMessages) session.pendingScene.privateMessages = {};
+        session.pendingScene.privateMessages[playerId] = content;
         return session;
     }
 
@@ -336,22 +356,21 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const player = session.players.find(p => p.id === playerId);
-        if (player && player.badges) {
-            if (badgeIndex >= 0 && badgeIndex < player.badges.length) {
-                player.badges.splice(badgeIndex, 1);
+        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
 
-                // Sync with online players list
-                const onlinePlayer = session.players_online.find(p => p.id === playerId);
-                if (onlinePlayer && onlinePlayer.badges && onlinePlayer.badges !== player.badges) {
-                    // Since indexes are synced (assumed), we can remove the same index
-                    if (onlinePlayer.badges.length > badgeIndex) {
-                        onlinePlayer.badges.splice(badgeIndex, 1);
-                    }
-                }
+        // If inactive, we must look at pendingScene. 
+        if (!session.isRoundActive && !targetScene) {
+            // If no pending scene, nothing to remove from
+            return null;
+        }
+
+        if (targetScene && targetScene.playerBadges && targetScene.playerBadges[playerId]) {
+            if (badgeIndex >= 0 && badgeIndex < targetScene.playerBadges[playerId].length) {
+                targetScene.playerBadges[playerId].splice(badgeIndex, 1);
                 return session;
             }
         }
+
         return null;
     }
     updatePlayerStatus(sessionId: string, playerId: string, statusText: string): GameState | null {
@@ -362,21 +381,66 @@ export class GameManager {
         const playerOnline = session.players_online.find(p => p.id === playerId);
 
         if (session.isRoundActive) {
-            if (player) {
-                player.statusText = statusText;
-                player.pendingStatusText = undefined; // Clear pending if any
-            }
-            if (playerOnline && playerOnline !== player) {
-                playerOnline.statusText = statusText;
-                playerOnline.pendingStatusText = undefined;
-            }
+            if (player) player.statusText = statusText;
+            if (playerOnline && playerOnline !== player) playerOnline.statusText = statusText;
         } else {
-            if (player) {
-                player.pendingStatusText = statusText;
+            if (!session.pendingScene) {
+                session.pendingScene = { description: '' };
             }
-            if (playerOnline && playerOnline !== player) {
-                playerOnline.pendingStatusText = statusText;
-            }
+            if (!session.pendingScene.playerStatuses) session.pendingScene.playerStatuses = {};
+            session.pendingScene.playerStatuses[playerId] = statusText;
+        }
+
+        return session;
+    }
+
+    updatePlayerAvatar(sessionId: string, playerId: string, avatarIndex: number): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players.find(p => p.id === playerId);
+        const playerOnline = session.players_online.find(p => p.id === playerId);
+
+        if (player) {
+            player.avatarIndex = avatarIndex;
+        }
+        // If objects are different references
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.avatarIndex = avatarIndex;
+        }
+
+        return session;
+    }
+
+    updatePlayerBackground(sessionId: string, playerId: string, background: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players.find(p => p.id === playerId);
+        const playerOnline = session.players_online.find(p => p.id === playerId);
+
+        if (player) {
+            player.background = background;
+        }
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.background = background;
+        }
+
+        return session;
+    }
+
+    updatePlayerName(sessionId: string, playerId: string, name: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players.find(p => p.id === playerId);
+        const playerOnline = session.players_online.find(p => p.id === playerId);
+
+        if (player) {
+            player.name = name;
+        }
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.name = name;
         }
 
         return session;

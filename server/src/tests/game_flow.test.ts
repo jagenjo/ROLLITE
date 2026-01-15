@@ -111,6 +111,56 @@ async function runTests() {
         throw new Error('File was not deleted');
     }
 
+
+    // 7. Badge Persistence
+    console.log('Test 7: Badge Persistence');
+    const badgeSessionId = gameManager.createSession('Director', 'Director', 'Badge Game', 0);
+    const badgePlayer = gameManager.createPlayer(badgeSessionId, 'BadgePlayer', 0, []);
+
+    // Setup initial scene
+    gameManager.updateScene(badgeSessionId, { description: 'Round 1', playerBadges: {} });
+
+    // Add badge in round 1
+    gameManager.startRound(badgeSessionId); // Start round 1
+    gameManager.addBadge(badgeSessionId, badgePlayer!.id, 'Bravery', false);
+
+    // Check it exists
+    let bs = gameManager.getSession(badgeSessionId);
+    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer!.id].length, 1);
+    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer!.id][0].name, 'Bravery');
+
+    // Next round
+    gameManager.nextRound(badgeSessionId);
+    bs = gameManager.getSession(badgeSessionId);
+
+    // Should be in pending scene
+    assert.strictEqual(bs?.pendingScene?.playerBadges?.[badgePlayer!.id].length, 1, 'Badge should persist to pending scene');
+    assert.strictEqual(bs?.pendingScene?.playerBadges?.[badgePlayer!.id][0].name, 'Bravery');
+
+    // Start round 2
+    gameManager.startRound(badgeSessionId);
+    bs = gameManager.getSession(badgeSessionId);
+
+    // Should be in current scene of round 2
+    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer!.id].length, 1, 'Badge should persist to next active round');
+    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer!.id][0].name, 'Bravery');
+
+    console.log('  PASS: Badges persist across rounds');
+
+    // 8. Test Immutability of History
+    console.log('Test 8: History Immutability');
+    // Modify badge in current scene (Round 2)
+    const currentScene = bs?.currentScene;
+    if (currentScene && currentScene.playerBadges && currentScene.playerBadges[badgePlayer!.id]) {
+        currentScene.playerBadges[badgePlayer!.id][0].name = 'Cowardice'; // Mutate!
+    }
+
+    // Check history (Round 1)
+    const historyRound1 = bs?.history.find(h => h.round === 1);
+    assert.ok(historyRound1, 'History for round 1 should exist');
+    assert.strictEqual(historyRound1?.scene?.playerBadges?.[badgePlayer!.id][0].name, 'Bravery', 'History should NOT be mutated');
+    console.log('  PASS: History is immutable');
+
     console.log('\nAll tests passed successfully!');
 }
 

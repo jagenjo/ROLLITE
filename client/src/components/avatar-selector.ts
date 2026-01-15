@@ -3,9 +3,9 @@ import { customElement, property } from 'lit/decorators.js';
 
 @customElement('avatar-selector')
 export class AvatarSelector extends LitElement {
-    @property({ type: Number }) selectedAvatarIndex = 0;
+  @property({ type: Number }) selectedAvatarIndex = 0;
 
-    static styles = css`
+  static styles = css`
     :host {
       display: block;
     }
@@ -20,7 +20,7 @@ export class AvatarSelector extends LitElement {
       display: flex;
       justify-content: center;
       align-items: center;
-      z-index: 1000;
+      z-index: 3000;
     }
 
     .modal-content {
@@ -52,8 +52,8 @@ export class AvatarSelector extends LitElement {
     }
 
     .avatar-option {
-      width: 40px;
-      height: 40px;
+      width: 48px;
+      height: 48px;
       border: 2px solid transparent;
       border-radius: 50%;
       cursor: pointer;
@@ -68,7 +68,7 @@ export class AvatarSelector extends LitElement {
     }
 
     .avatar-image {
-      width: 320px; /* 8 cols * 40px */
+      width: 384px; /* 8 cols * 48px */
       height: auto; 
       image-rendering: pixelated;
       position: absolute;
@@ -90,33 +90,33 @@ export class AvatarSelector extends LitElement {
     }
   `;
 
-    private _handleSelect(index: number) {
-        this.dispatchEvent(new CustomEvent('avatar-selected', {
-            detail: { index },
-            bubbles: true,
-            composed: true
-        }));
-    }
+  private _handleSelect(index: number) {
+    this.dispatchEvent(new CustomEvent('avatar-selected', {
+      detail: { index },
+      bubbles: true,
+      composed: true
+    }));
+  }
 
-    private _close() {
-        this.dispatchEvent(new CustomEvent('close', {
-            bubbles: true,
-            composed: true
-        }));
-    }
+  private _close() {
+    this.dispatchEvent(new CustomEvent('close', {
+      bubbles: true,
+      composed: true
+    }));
+  }
 
-    render() {
-        return html`
+  render() {
+    return html`
       <div class="modal-overlay" @click="${this._close}">
         <div class="modal-content" @click="${(e: Event) => e.stopPropagation()}">
             <h3>Choose an Avatar</h3>
             <div class="avatar-grid">
                 ${Array.from({ length: 64 }).map((_, i) => {
-            const col = i % 8;
-            const row = Math.floor(i / 8);
-            const xOffset = -(col * 40);
-            const yOffset = -(row * 40);
-            return html`
+      const col = i % 8;
+      const row = Math.floor(i / 8);
+      const xOffset = -(col * 48);
+      const yOffset = -(row * 48);
+      return html`
                     <div 
                         class="avatar-option ${this.selectedAvatarIndex === i ? 'selected' : ''}"
                         @click="${() => this._handleSelect(i)}"
@@ -129,11 +129,11 @@ export class AvatarSelector extends LitElement {
                         />
                     </div>
                   `;
-        })}
+    })}
             </div>
             <button @click="${this._close}">Close</button>
         </div>
       </div>
     `;
-    }
+  }
 }

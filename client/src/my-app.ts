@@ -10,6 +10,7 @@ import './components/admin-dashboard';
 
 import './components/header-profile';
 import './components/exit-button';
+import './components/game-actions';
 
 const SOCKET_URL = 'http://localhost:4001';
 
@@ -212,6 +213,21 @@ export class MyApp extends LitElement {
       position: absolute;
       image-rendering: pixelated;
     }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1f2937;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
+    }
   `;
 
   connectedCallback() {
@@ -257,6 +273,7 @@ export class MyApp extends LitElement {
 
     this._socket.on('gameStateUpdate', (state: GameState) => {
       console.log('Received gameStateUpdate:', state);
+      const isFirstLoad = !this._gameState;
       this._gameState = state;
 
       // Update URL if we are the director and just created the session
@@ -282,7 +299,7 @@ export class MyApp extends LitElement {
         this._viewingRound = state.round;
       }
 
-      if (!this._gameState) {
+      if (isFirstLoad) {
         this._viewingRound = state.round;
       }
 
@@ -437,7 +454,7 @@ export class MyApp extends LitElement {
     }
   }
 
-  private _handleStartRound(e: CustomEvent) {
+  private _handleStartRound() {
     if (!this._gameState?.sessionId) return;
     this._socket?.emit('startRound', this._gameState.sessionId);
   }
@@ -448,8 +465,59 @@ export class MyApp extends LitElement {
     }
   }
 
+  private _handleUpdatePlayerAvatar(e: CustomEvent) {
+    if (!this._gameState?.sessionId && this._socket) return;
+    this._socket?.emit('updatePlayerAvatar', e.detail.playerId, e.detail.avatarIndex);
+  }
+
+  private _handleUpdatePlayerBackground(e: CustomEvent) {
+    if (!this._gameState?.sessionId) return;
+    this._socket?.emit('updatePlayerBackground', e.detail.playerId, e.detail.background);
+  }
+
+  private _handleUpdatePlayerName(e: CustomEvent) {
+    if (!this._gameState?.sessionId) return;
+    this._socket?.emit('updatePlayerName', e.detail.playerId, e.detail.name);
+  }
+
   private _refreshStats() {
     this._socket?.emit('getSystemStats');
+  }
+
+  private _handleSaveSession(e: CustomEvent) {
+    if (!this._gameState?.sessionId) return;
+    const sessionId = e.detail?.sessionId || this._gameState.sessionId;
+    this._socket?.emit('saveSession', sessionId);
+  }
+
+  private _handleEndSession(e: CustomEvent) {
+    if (!this._gameState?.sessionId) return;
+    const sessionId = e.detail?.sessionId || this._gameState.sessionId;
+    this._socket?.emit('endSession', sessionId);
+  }
+
+  private _handleDownloadSession() {
+    if (!this._gameState) return;
+
+    // Construct the full game data object similar to how it's stored
+    const gameData = {
+      sessionId: this._gameState.sessionId,
+      directorId: this._gameState.director.id,
+      messages: this._gameState.messages,
+      history: this._gameState.history,
+      players: this._gameState.players,
+      currentScene: this._gameState.currentScene,
+      round: this._gameState.round,
+      isEnded: this._gameState.isEnded
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameData, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `rollite_session_${this._gameState.sessionId}.json`);
+    document.body.appendChild(downloadAnchorNode); // required for firefox
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
   }
 
   updated(changedProperties: Map<string, any>) {
@@ -500,6 +568,7 @@ export class MyApp extends LitElement {
                     ?isDirector="${false}"
                     .messages="${this._gameState?.messages || []}"
                     .players="${this._gameState?.players || []}"
+                    .directorId="${this._gameState?.director.id}"
                     .currentUserId="${'SPECTATOR'}"
                     ?canChat="${false}"
                     .isEnded="${!!this._gameState?.isEnded}"
@@ -512,6 +581,7 @@ export class MyApp extends LitElement {
                     .playersOnline="${this._gameState?.players_online || []}"
                     .director="${this._gameState?.director || null}"
                     .currentUserId="${'SPECTATOR'}"
+                    .currentScene="${this._gameState?.currentScene || null}"
                   ></players-list>
                 </div>
             </div>
@@ -573,6 +643,14 @@ export class MyApp extends LitElement {
           <div class="game-title">${this._gameState?.gameName || 'Untitled Game'}</div>
           <div class="header-right">
               <header-profile .player="${this._currentPlayer}"></header-profile>
+              ${isDirector ? html`
+                <game-actions 
+                    .isEnded="${!!this._gameState?.isEnded}"
+                    @save-session="${this._handleSaveSession}"
+                    @download-session="${this._handleDownloadSession}"
+                    @end-session="${this._handleEndSession}"
+                ></game-actions>
+              ` : ''}
               <exit-button @exit-game="${this._handleExit}"></exit-button>
           </div>
       </header>
@@ -587,35 +665,18 @@ export class MyApp extends LitElement {
             ?isDirector="${this._gameState?.director.id === this._currentPlayer?.id}"
             .messages="${this._gameState?.messages || []}"
             .players="${this._gameState?.players || []}"
+            .directorId="${this._gameState?.director.id}"
             .currentUserId="${this._currentPlayer?.id || ''}"
             ?canChat="${this._gameState?.director.id === this._currentPlayer?.id || (this._gameState?.isRoundActive && !this._gameState?.submittedActions.includes(this._currentPlayer?.id || ''))}"
             .isEnded="${!!this._gameState?.isEnded}"
+            .isRoundActive="${this._gameState?.isRoundActive || false}"
             @view-round-change="${this._handleViewRoundChange}"
             @update-scene="${this._handleUpdateScene}"
             @message-sent="${this._handleMessageSent}"
+            @start-round="${this._handleStartRound}"
+            @next-round="${this._handleNextRound}"
           ></scene-display>
-          ${this._gameState?.director.id === this._currentPlayer?.id ? html`
-            <director-dashboard
-              .currentScene="${this._gameState?.currentScene}"
-              .pendingScene="${this._gameState?.pendingScene}"
-              .pendingPrivateMessages="${this._gameState?.pendingPrivateMessages || {}}"
-              .messages="${this._gameState?.messages || []}"
-              .history="${this._gameState?.history || []}"
-              .players="${this._gameState?.players || []}"
-              .round="${this._gameState?.round || 1}"
-              .viewingRound="${this._viewingRound}"
-              .sessionId="${this._gameState?.sessionId || ''}"
-              .directorId="${this._gameState?.director.id || ''}"
-              ?isRoundActive="${this._gameState?.isRoundActive}"
-              .isEnded="${!!this._gameState?.isEnded}"
-              @next-round="${this._handleNextRound}"
-              @start-round="${this._handleStartRound}"
-              @create-player="${this._handleCreatePlayer}"
-              @set-pending-private-message="${this._handleSetPendingPrivateMessage}"
-              @end-session="${(e: CustomEvent) => this._socket?.emit('endSession', e.detail.sessionId)}"
-              @save-session="${(e: CustomEvent) => this._socket?.emit('saveSession', e.detail.sessionId)}"
-            ></director-dashboard>
-          ` : html`
+          ${!isDirector ? html`
             <player-dashboard
               .currentScene="${this._gameState?.currentScene}"
               .isRoundActive="${this._gameState?.isRoundActive}"
@@ -625,19 +686,48 @@ export class MyApp extends LitElement {
               .isEnded="${!!this._gameState?.isEnded}"
               @submit-action="${this._handleSubmitAction}"
             ></player-dashboard>
-          `}
+          ` : ''}
         </div>
         
         <div class="sidebar">
-          <players-list
-            .players="${this._gameState?.players || []}"
-            .playersOnline="${this._gameState?.players_online || []}"
-            .director="${this._gameState?.director || null}"
-            .currentUserId="${this._currentPlayer?.id || ''}"
-            @add-badge="${this._handleAddBadge}"
-            @remove-badge="${this._handleRemoveBadge}"
-            @update-player-status="${this._handleUpdatePlayerStatus}"
-          ></players-list>
+          ${isDirector ? html`
+            <director-dashboard
+              .currentScene="${this._gameState?.currentScene}"
+              .pendingScene="${this._gameState?.pendingScene}"
+              .messages="${this._gameState?.messages || []}"
+              .history="${this._gameState?.history || []}"
+              .players="${this._gameState?.players || []}"
+              .round="${this._gameState?.round || 1}"
+              .viewingRound="${this._viewingRound}"
+              .sessionId="${this._gameState?.sessionId || ''}"
+              .directorId="${this._gameState?.director.id || ''}"
+              .isEnded="${!!this._gameState?.isEnded}"
+              .playersOnline="${this._gameState?.players_online || []}"
+              @next-round="${this._handleNextRound}"
+              @start-round="${this._handleStartRound}"
+              @create-player="${this._handleCreatePlayer}"
+              @set-pending-private-message="${this._handleSetPendingPrivateMessage}"
+              @add-badge="${this._handleAddBadge}"
+              @remove-badge="${this._handleRemoveBadge}"
+              @update-player-status="${this._handleUpdatePlayerStatus}"
+              @update-player-avatar="${this._handleUpdatePlayerAvatar}"
+              @update-player-background="${this._handleUpdatePlayerBackground}"
+              @update-player-name="${this._handleUpdatePlayerName}"
+            ></director-dashboard>
+          ` : html`
+            <players-list
+              .players="${this._gameState?.players || []}"
+              .playersOnline="${this._gameState?.players_online || []}"
+              .director="${this._gameState?.director || null}"
+              .currentUserId="${this._currentPlayer?.id || ''}"
+              .currentScene="${this._gameState?.currentScene || null}"
+              .pendingScene="${this._gameState?.pendingScene || null}"
+              .sessionId="${this._gameState?.sessionId || ''}"
+              @add-badge="${this._handleAddBadge}"
+              @remove-badge="${this._handleRemoveBadge}"
+              @update-player-status="${this._handleUpdatePlayerStatus}"
+            ></players-list>
+          `}
         </div>
       </div>
     `;
