@@ -3,6 +3,9 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { GameManager } from './game/GameManager';
 import { FileStorage } from './game/file_storage';
 import { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from './types';
@@ -12,6 +15,26 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static('public'));
+
+// Configure Multer
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const sessionId = req.body.sessionId || 'unknown';
+        const uploadPath = path.join('public', 'uploads', sessionId);
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        cb(null, uploadPath);
+    },
+    filename: (req, file, cb) => {
+        // Simple sanitization: keep extension, generate unique name or keep original if safe
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+        cb(null, `${Date.now()}_${safeName}`);
+    }
+});
+
+const upload = multer({ storage: storage });
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
@@ -282,6 +305,17 @@ io.on('connection', (socket) => {
         const stats = gameManager.getAllSessions();
         socket.emit('systemStatsUpdate', stats);
     });
+});
+
+
+app.post('/upload', upload.single('image'), (req, res) => {
+    if (!req.file) {
+        res.status(400).send('No file uploaded.');
+        return;
+    }
+    const sessionId = req.body.sessionId; // Multer text fields are available here
+    const fileUrl = `/uploads/${sessionId}/${req.file.filename}`;
+    res.json({ url: fileUrl });
 });
 
 app.get('/', (req, res) => {

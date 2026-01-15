@@ -1,6 +1,11 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { marked } from 'marked';
 import type { Scene, Message } from '../types';
+import './round-selector';
+
+const SERVER_URL = 'http://localhost:4001';
 
 @customElement('scene-display')
 export class SceneDisplay extends LitElement {
@@ -13,17 +18,17 @@ export class SceneDisplay extends LitElement {
   @property({ type: Array }) messages: Message[] = [];
   @property({ type: String }) currentUserId = '';
   @property({ type: String }) directorId = '';
+  @property({ type: String }) sessionId = '';
   @property({ type: Boolean }) canChat = false;
-  @property({ type: Boolean }) isEnded = false; // NEW
-  @property({ type: Boolean }) isRoundActive = false; // NEW
+  @property({ type: Boolean }) isEnded = false;
+  @property({ type: Boolean }) isRoundActive = false;
 
   @state() private _isEditing = false;
   private _editDescription = '';
 
-  @state() private _chatInputValue = ''; // NEW
+  @state() private _chatInputValue = '';
 
   static styles = css`
-    /* ... existing styles ... */
     :host {
       display: block;
       padding-left: 1rem;
@@ -83,18 +88,11 @@ export class SceneDisplay extends LitElement {
       min-height: 400px;
     }
 
-    .navigation {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.5rem;
-        background-color: #374151;
-        border-top: 1px solid #4b5563;
-    }
-
-    .round-indicator {
-        font-weight: bold;
-        color: #9ca3af;
+    .description img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
     }
 
     button {
@@ -179,7 +177,6 @@ export class SceneDisplay extends LitElement {
 
     .message {
       padding: 0.5rem 0.75rem;
-      /*border-radius: 0.5rem;*/
       max-width: 90%;
       word-wrap: break-word;
       font-size: 0.95rem;
@@ -190,7 +187,7 @@ export class SceneDisplay extends LitElement {
 
     .message.own {
       align-self: flex-end;
-      background-color: #3c3c3c; /* blue-500 */
+      background-color: #3c3c3c;
       color: white;
       flex-direction: row-reverse;
     }
@@ -202,8 +199,8 @@ export class SceneDisplay extends LitElement {
 
     .message.other {
       align-self: flex-start;
-      background-color: #242424; /* gray-700 */
-      color: #aaa; /* gray-200 */
+      background-color: #242424;
+      color: #aaa;
     }
 
     .message.director {
@@ -246,7 +243,7 @@ export class SceneDisplay extends LitElement {
     }
 
     .message-avatar-image {
-      width: 256px; /* 8 * 32px */
+      width: 256px; 
       height: auto; 
       image-rendering: pixelated;
       position: absolute;
@@ -276,18 +273,6 @@ export class SceneDisplay extends LitElement {
       background: #6b7280;
     }
   `;
-
-  private _handlePrevRound() {
-    this.dispatchEvent(new CustomEvent('view-round-change', {
-      detail: { round: this.viewingRound - 1 }
-    }));
-  }
-
-  private _handleNextRound() {
-    this.dispatchEvent(new CustomEvent('view-round-change', {
-      detail: { round: this.viewingRound + 1 }
-    }));
-  }
 
   private _startRound() {
     this.dispatchEvent(new CustomEvent('start-round', {
@@ -327,7 +312,66 @@ export class SceneDisplay extends LitElement {
     this._isEditing = false;
   }
 
-  // CHAT HANDLERS
+  private _handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  private async _handleDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        await this._uploadImage(file);
+      }
+    }
+  }
+
+  private async _uploadImage(file: File) {
+    if (!this.sessionId) {
+      console.error('No session ID available for upload');
+      alert('Cannot upload: Session ID missing');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('sessionId', this.sessionId);
+    formData.append('image', file);
+
+    try {
+      const response = await fetch(`${SERVER_URL}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Insert markdown at cursor position or append
+        const markdown = `\n![Image](${SERVER_URL}${data.url})\n`;
+
+        // Simple append if textarea reference isn't handy, but we can query it
+        const textarea = this.shadowRoot?.querySelector('textarea');
+        if (textarea) {
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const text = this._editDescription;
+          this._editDescription = text.substring(0, start) + markdown + text.substring(end);
+          this.requestUpdate(); // Force re-render to update textarea value
+        } else {
+          this._editDescription += markdown;
+        }
+      } else {
+        console.error('Upload failed');
+        alert('Failed to upload image');
+      }
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      alert('Error uploading image');
+    }
+  }
+
   private _handleChatInput(e: Event) {
     this._chatInputValue = (e.target as HTMLInputElement).value;
   }
@@ -375,9 +419,12 @@ export class SceneDisplay extends LitElement {
     return html`
       <div class="scene-container">
         <div class="header">
-            <h2>${this.viewingRound === this.currentRound ? 'Scene' : `Round ${this.viewingRound}`}</h2>
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
-                ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <round-selector
+                    .currentRound="${this.currentRound}"
+                    .viewingRound="${this.viewingRound}"
+                ></round-selector>
+
                 ${this.isDirector && this.viewingRound === this.currentRound && !this.isEnded ? html`
                     ${!this.isRoundActive ? html`
                         <button @click="${this._startRound}" style="background-color: #3b82f6; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Start Round</button>
@@ -388,13 +435,18 @@ export class SceneDisplay extends LitElement {
                         <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
                     ` : ''}
                 ` : ''}
+                ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
             </div>
         </div>
 
         ${this._isEditing && this.viewingRound === this.currentRound ? html`
-            <div class="edit-form">
+            <div 
+                class="edit-form" 
+                @dragover="${this._handleDragOver}" 
+                @drop="${this._handleDrop}"
+            >
                 <div class="form-group">
-                    <label>Scene Description</label>
+                    <label>Scene Description (Drag & Drop images here)</label>
                     <textarea
                         .value="${this._editDescription}"
                         @input="${(e: Event) => this._editDescription = (e.target as HTMLTextAreaElement).value}"
@@ -412,7 +464,10 @@ export class SceneDisplay extends LitElement {
         ${!this._isEditing ? html`
 
             <div class="description">
-            ${displayScene?.description || "Waiting for the director to set the scene..."}
+            ${displayScene?.description
+          ? unsafeHTML(marked.parse(displayScene.description) as string) // Changed to support Markdown
+          : html`<span class="placeholder">Waiting for the director to set the scene...</span>`
+        }
 
             ${privateMessages.length > 0 ? html`
                 ${privateMessages.map(msg => html`
@@ -424,10 +479,10 @@ export class SceneDisplay extends LitElement {
             ` : ''}
 
             ${this.messages.filter(m =>
-      m.round === this.viewingRound &&
-      m.isAction &&
-      (this.isDirector || m.senderId === this.currentUserId)
-    ).map(actionMsg => html`
+          m.round === this.viewingRound &&
+          m.isAction &&
+          (this.isDirector || m.senderId === this.currentUserId)
+        ).map(actionMsg => html`
                 <div style="margin-top: 1rem; padding: 0.5rem; background: #374151; border-radius: 0.25rem; border-left: 3px solid #fbbf24;">
                      <div style="font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.25rem; font-weight: bold;">
                         ${actionMsg.senderId === this.currentUserId ? 'YOUR ACTION' : `ACTION: ${actionMsg.senderName}`}
@@ -445,14 +500,14 @@ export class SceneDisplay extends LitElement {
                 <div class="messages-list">
                     ${roundMessages.length === 0 ? html`<div style="color: #6b7280; font-style: italic; font-size: 0.9rem;">No messages in this round.</div>` : ''}
                     ${roundMessages.map(msg => {
-      const player = this.players.find(p => p.id === msg.senderId);
-      const avatarIdx = player?.avatarIndex !== undefined ? player.avatarIndex : 0;
-      const col = avatarIdx % 8;
-      const row = Math.floor(avatarIdx / 8);
-      const xOffset = -(col * 32);
-      const yOffset = -(row * 32);
+          const player = this.players.find(p => p.id === msg.senderId);
+          const avatarIdx = player?.avatarIndex !== undefined ? player.avatarIndex : 0;
+          const col = avatarIdx % 8;
+          const row = Math.floor(avatarIdx / 8);
+          const xOffset = -(col * 32);
+          const yOffset = -(row * 32);
 
-      return html`
+          return html`
                         <div class="message ${msg.senderId === this.currentUserId ? 'own' : msg.senderId === this.directorId ? 'director' : 'other'}">
                             <div class="message-avatar-container">
                                 <img 
@@ -486,21 +541,6 @@ export class SceneDisplay extends LitElement {
 
         ` : ''}
         
-        <div class="navigation">
-            <button 
-                ?disabled="${this.viewingRound <= 1}"
-                @click="${this._handlePrevRound}"
-            >
-                &larr; Previous Round
-            </button>
-            <span class="round-indicator">Round ${this.viewingRound} / ${this.currentRound}</span>
-            <button 
-                ?disabled="${this.viewingRound >= this.currentRound}"
-                @click="${this._handleNextRound}"
-            >
-                Next Round &rarr;
-            </button>
-        </div>
       </div>
     `;
   }

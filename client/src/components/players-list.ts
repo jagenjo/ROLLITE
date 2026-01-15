@@ -40,7 +40,7 @@ export class PlayersList extends LitElement {
 
     .director-badge {
       color: #fbbf24;
-      font-size: 0.65rem;
+      font-size: 0.8rem;
     }
 
     .badge {
@@ -143,8 +143,7 @@ export class PlayersList extends LitElement {
                     ${!isPlayerDirector ? html`
                         <div slot="status">
                             <div 
-                                class="status-text" 
-                                style="text-align: right;"
+                                class="status-text"
                             >
                                 ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || '')}
                             </div>

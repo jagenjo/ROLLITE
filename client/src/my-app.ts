@@ -670,6 +670,7 @@ export class MyApp extends LitElement {
             ?canChat="${this._gameState?.director.id === this._currentPlayer?.id || (this._gameState?.isRoundActive && !this._gameState?.submittedActions.includes(this._currentPlayer?.id || ''))}"
             .isEnded="${!!this._gameState?.isEnded}"
             .isRoundActive="${this._gameState?.isRoundActive || false}"
+            .sessionId="${this._gameState?.sessionId || ''}"
             @view-round-change="${this._handleViewRoundChange}"
             @update-scene="${this._handleUpdateScene}"
             @message-sent="${this._handleMessageSent}"
