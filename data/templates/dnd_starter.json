@@ -1,0 +1,82 @@
+{
+    "sessionId": "TEMPLATE",
+    "gameName": "DnD 5e Starter",
+    "director": {
+        "id": "director_template",
+        "name": "Dungeon Master",
+        "avatarIndex": 0
+    },
+    "players": [
+        {
+            "id": "director_template",
+            "name": "Dungeon Master",
+            "avatarIndex": 0
+        },
+        {
+            "id": "char_fighter",
+            "name": "Grom (Fighter)",
+            "avatarIndex": 1,
+            "background": "Soldier"
+        },
+        {
+            "id": "char_wizard",
+            "name": "Elara (Wizard)",
+            "avatarIndex": 2,
+            "background": "Sage"
+        },
+        {
+            "id": "char_rogue",
+            "name": "Varis (Rogue)",
+            "avatarIndex": 3,
+            "background": "Criminal"
+        },
+        {
+            "id": "char_cleric",
+            "name": "Kaelen (Cleric)",
+            "avatarIndex": 4,
+            "background": "Acolyte"
+        }
+    ],
+    "players_online": [],
+    "currentScene": null,
+    "pendingScene": {
+        "description": "# The Stonehill Inn\n\nYou find yourselves in the **Stonehill Inn**, the only modest establishment in the rough-and-tumble town of Phandalin. The common room is filled with miners and farmers.\n\nToblen Stonehill, the short, friendly young human innkeeper, comes over to your table.\n\n> \"Welcome friends! What can I get for you? Analysis indicates you look thirsty!\"\n\n**Current Objective**: Meet your patron, Gundren Rockseeker.\n\n!",
+        "playerStatuses": {
+            "char_fighter": "Eager",
+            "char_wizard": "Studying Map",
+            "char_rogue": "Suspicious",
+            "char_cleric": "Praying"
+        },
+        "playerBadges": {
+            "char_fighter": [
+                {
+                    "name": "Fire Sword",
+                    "hidden": false
+                }
+            ],
+            "char_wizard": [
+                {
+                    "name": "Invisiblility Cloak",
+                    "hidden": false
+                }
+            ],
+            "char_rogue": [
+                {
+                    "name": "Rope",
+                    "hidden": false
+                }
+            ],
+            "char_cleric": [
+                {
+                    "name": "Amulet of Protection",
+                    "hidden": false
+                }
+            ]
+        }
+    },
+    "round": 1,
+    "isRoundActive": false,
+    "submittedActions": [],
+    "messages": [],
+    "history": []
+}

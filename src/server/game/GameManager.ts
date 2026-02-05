@@ -25,7 +25,12 @@ export class GameManager {
                 // Reset Director
                 const director: Player = { id: playerId, name: directorName, avatarIndex };
                 initialState.director = director;
-                initialState.players = [director];
+
+                // Preserve existing players (characters) from template, excluding the old director
+                const oldDirectorId = template.director.id;
+                const accumulatedPlayers = template.players.filter((p: Player) => p.id !== oldDirectorId);
+
+                initialState.players = [director, ...accumulatedPlayers];
                 initialState.players_online = [director];
 
                 // Reset dynamic state
@@ -427,4 +432,155 @@ export class GameManager {
         if (!session) return null;
 
         const player = session.players?.find(p => p.id === playerId);
-        const playerOnline = session.players_on
+        const playerOnline = session.players_online?.find(p => p.id === playerId);
+
+        if (session.isRoundActive) {
+            if (player) player.statusText = statusText;
+            if (playerOnline && playerOnline !== player) playerOnline.statusText = statusText;
+        } else {
+            if (!session.pendingScene) {
+                session.pendingScene = { description: '' };
+            }
+            if (!session.pendingScene.playerStatuses) session.pendingScene.playerStatuses = {};
+            session.pendingScene.playerStatuses[playerId] = statusText;
+        }
+
+        return session;
+    }
+
+    updatePlayerAvatar(sessionId: string, playerId: string, avatarIndex: number): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players?.find(p => p.id === playerId);
+        const playerOnline = session.players_online?.find(p => p.id === playerId);
+
+        if (player) {
+            player.avatarIndex = avatarIndex;
+        }
+        // If objects are different references
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.avatarIndex = avatarIndex;
+        }
+
+        return session;
+    }
+
+    updatePlayerBackground(sessionId: string, playerId: string, background: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players?.find(p => p.id === playerId);
+        const playerOnline = session.players_online?.find(p => p.id === playerId);
+
+        if (player) {
+            player.background = background;
+        }
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.background = background;
+        }
+
+        return session;
+    }
+
+    updatePlayerName(sessionId: string, playerId: string, name: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players?.find(p => p.id === playerId);
+        const playerOnline = session.players_online?.find(p => p.id === playerId);
+
+        if (player) {
+            player.name = name;
+        }
+        if (playerOnline && playerOnline !== player) {
+            playerOnline.name = name;
+        }
+
+        return session;
+    }
+    saveAsTemplate(sessionId: string, templateName: string): boolean {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        // Restriction: Can only save as template in early rounds (Round 1) to avoid carrying over too much baggage?
+        // Or maybe strictly Round 1.
+        if (session.round > 1) {
+            console.warn(`Cannot save as template: Round is ${session.round}`);
+            return false;
+        }
+
+        if (!this.fileStorage) return false;
+
+        // Clone session
+        const templateState: GameState = JSON.parse(JSON.stringify(session));
+
+        // Clean up for template
+        templateState.gameName = templateName; // Store the template name here
+        templateState.sessionId = 'TEMPLATE'; // Placeholder
+        templateState.players_online = [];
+        templateState.submittedActions = [];
+        templateState.messages = [];
+        // Keep pendingScene and currentScene as the "content"
+
+        // Generate a simple ID for the template file
+        const templateId = Math.random().toString(36).substring(2, 10);
+
+        return this.fileStorage.saveTemplate(templateId, templateState);
+    }
+
+    getTemplates(): { id: string, name: string }[] {
+        if (this.fileStorage) {
+            return this.fileStorage.listTemplates();
+        }
+        return [];
+    }
+
+    loadTemplateIntoSession(sessionId: string, templateId: string): boolean {
+        const session = this.sessions.get(sessionId);
+        if (!session) return false;
+
+        if (session.round > 1) {
+            console.warn(`Cannot load template into session ${sessionId}: Round is ${session.round}`);
+            return false;
+        }
+
+        if (!this.fileStorage) return false;
+
+        const template = this.fileStorage.loadTemplate(templateId);
+        if (!template) {
+            console.warn(`Template ${templateId} not found`);
+            return false;
+        }
+
+        // Merge Logic
+        // Keep: sessionId, director, players_online, gameName, messages (cleared?), history (cleared)
+        // Overwrite: currentScene, pendingScene, round, submittedActions
+
+        session.currentScene = template.currentScene;
+        session.pendingScene = template.pendingScene;
+        session.round = 1;
+        session.isRoundActive = false;
+        session.submittedActions = [];
+        session.history = []; // Reset history
+        session.messages = []; // Reset messages to start fresh
+
+        // Reset Players:
+        // Keep director, replace characters.
+        const director = session.director;
+
+        // Filter out the OLD director from the template players
+        const templatePlayers = template.players.filter((p: Player) => p.id !== template.director.id);
+
+        // Reconstruct player list: Director + Template Characters
+        session.players = [director, ...templatePlayers];
+
+        // Ensure online players are still in the list (or at least valid)?
+        // If we reset players, online players might refer to objects no longer in `session.players` if we use strict reference equality.
+        // But `players_online` is a separate array.
+        // We should probably just ensure the director object in `players_online` is the same ref if possible, or just leave it.
+        // The front-end reconciles by ID usually.
+
+        return true;
+    }
+}

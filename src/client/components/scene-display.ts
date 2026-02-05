@@ -42,6 +42,7 @@ export class SceneDisplay extends LitElement {
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      font-family: "Gentium Book Plus", serif;
     }
 
     .header {
@@ -139,6 +140,7 @@ export class SceneDisplay extends LitElement {
       color: white;
       box-sizing: border-box;
       font-family: inherit;
+      font-size: 1.125rem;
     }
 
     textarea {
@@ -187,7 +189,6 @@ export class SceneDisplay extends LitElement {
 
     .message.own {
       align-self: flex-end;
-      background-color: #3c3c3c;
       color: white;
       flex-direction: row-reverse;
     }
@@ -199,12 +200,10 @@ export class SceneDisplay extends LitElement {
 
     .message.other {
       align-self: flex-start;
-      background-color: #242424;
       color: #aaa;
     }
 
     .message.director {
-      background-color: #000;
       color: white;
     }
 
@@ -500,7 +499,6 @@ export class SceneDisplay extends LitElement {
             <!-- CHAT INTEGRATION -->
             <div class="chat-section">
                 <div class="messages-list">
-                    ${roundMessages.length === 0 ? html`<div style="color: #6b7280; font-style: italic; font-size: 0.9rem;">No messages in this round.</div>` : ''}
                     ${roundMessages.map(msg => {
           const player = this.players.find(p => p.id === msg.senderId);
           const avatarIdx = player?.avatarIndex !== undefined ? player.avatarIndex : 0;

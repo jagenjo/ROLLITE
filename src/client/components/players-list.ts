@@ -49,7 +49,6 @@ export class PlayersList extends LitElement {
         font-size: 0.8rem;
         padding: 0.1rem 0.3rem;
         border-radius: 0.2rem;
-        display: flex;
         align-items: center;
         gap: 0.2rem;
         border: 1px solid transparent;

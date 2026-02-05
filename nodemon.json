@@ -1,0 +1,16 @@
+{
+    "ignore": [
+        "src/client/*",
+        "public/*",
+        "data/*",
+        "dist/*",
+        "node_modules/*",
+        "coverage/*",
+        "*.test.ts"
+    ],
+    "watch": [
+        "src/server",
+        "src/shared"
+    ],
+    "ext": "ts,js,json"
+}

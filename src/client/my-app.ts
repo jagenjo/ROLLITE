@@ -21,9 +21,11 @@ export class MyApp extends LitElement {
   @state() private _currentPlayer: Player | null = null;
   @state() private _playerName = '';
   @state() private _gameName = '';
-  @state() private _sessionId = '';
   @state() private _selectedAvatarIndex = 0;
   @state() private _errorMessage = '';
+  @state() private _templates: { id: string, name: string }[] = [];
+  @state() private _selectedTemplateId = '';
+  @state() private _showLoadTemplateModal = false;
 
   @state() private _isInLobby = true;
   @state() private _viewingRound = 1;
@@ -45,6 +47,30 @@ export class MyApp extends LitElement {
       /*font-family: "Jersey 10", sans-serif;*/
       font-family: "Inter", sans-serif;
     }
+
+    .gentium-book-plus-regular {
+      font-family: "Gentium Book Plus", serif;
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    .gentium-book-plus-bold {
+      font-family: "Gentium Book Plus", serif;
+      font-weight: 700;
+      font-style: normal;
+    }
+
+    .gentium-book-plus-regular-italic {
+      font-family: "Gentium Book Plus", serif;
+      font-weight: 400;
+      font-style: italic;
+    }
+
+    .gentium-book-plus-bold-italic {
+      font-family: "Gentium Book Plus", serif;
+      font-weight: 700;
+      font-style: italic;
+    }    
     
     .app-header {
         display: grid;
@@ -268,7 +294,21 @@ export class MyApp extends LitElement {
       if (this._isAdmin) {
         this._socket?.emit('getSystemStats');
       } else {
+        this._socket?.emit('getTemplates');
         this._checkAutoJoin();
+      }
+    });
+
+    this._socket.on('templatesList', (templates) => {
+      this._templates = templates;
+    });
+
+    this._socket.on('templateSaved', (success) => {
+      if (success) {
+        alert('Template saved successfully!');
+        this._socket?.emit('getTemplates'); // Refresh list
+      } else {
+        alert('Failed to save template.');
       }
     });
 
@@ -389,7 +429,8 @@ export class MyApp extends LitElement {
   private _createSession() {
     if (this._playerName && this._gameName) {
       this._savePlayerPrefs();
-      this._socket?.emit('createSession', this._userToken, this._playerName, this._gameName, this._selectedAvatarIndex);
+      this._savePlayerPrefs();
+      this._socket?.emit('createSession', this._userToken, this._playerName, this._gameName, this._selectedAvatarIndex, this._selectedTemplateId || undefined);
     }
   }
 
@@ -483,6 +524,26 @@ export class MyApp extends LitElement {
 
   private _refreshStats() {
     this._socket?.emit('getSystemStats');
+  }
+
+  private _handleSaveTemplate(e: CustomEvent) {
+    if (!this._gameState?.sessionId) return;
+    this._socket?.emit('saveAsTemplate', this._gameState.sessionId, e.detail.name);
+  }
+
+  private _handleRequestLoadTemplate() {
+    this._socket?.emit('getTemplates');
+    this._showLoadTemplateModal = true;
+    this._selectedTemplateId = ''; // Reset selection
+  }
+
+  private _confirmLoadTemplate() {
+    if (this._selectedTemplateId && this._gameState?.sessionId) {
+      if (confirm('WARNING: This will overwrite the current game state (characters, scene descriptions, etc). Are you sure?')) {
+        this._socket?.emit('loadTemplateIntoSession', this._gameState.sessionId, this._selectedTemplateId);
+        this._showLoadTemplateModal = false;
+      }
+    }
   }
 
   private _handleSaveSession(e: CustomEvent) {
@@ -607,8 +668,16 @@ export class MyApp extends LitElement {
                     </div>
                 ` : ''}
                 <div style="margin-bottom: 2rem; text-align: center;">
-                    <h2 style="font-size: 1.25rem; color: #9ca3af;">Director Setup1</h2>
+                    <h2 style="font-size: 1.25rem; color: #9ca3af;">Director Setup</h2>
                 </div>
+
+                <select 
+                    style="width: 100%; padding: 0.75rem; margin-bottom: 1rem; border-radius: 0.25rem; border: 1px solid #374151; background-color: #111827; color: white;"
+                    @change="${(e: Event) => this._selectedTemplateId = (e.target as HTMLSelectElement).value}"
+                >
+                    <option value="">Empty Game</option>
+                    ${this._templates.map(t => html`<option value="${t.id}">${t.name}</option>`)}
+                </select>
 
                 <input
                     type="text"
@@ -647,7 +716,10 @@ export class MyApp extends LitElement {
               ${isDirector ? html`
                 <game-actions 
                     .isEnded="${!!this._gameState?.isEnded}"
+                    .currentRound="${this._gameState?.round || 1}"
                     @save-session="${this._handleSaveSession}"
+                    @save-template="${this._handleSaveTemplate}"
+                    @request-load-template="${this._handleRequestLoadTemplate}"
                     @download-session="${this._handleDownloadSession}"
                     @end-session="${this._handleEndSession}"
                 ></game-actions>
@@ -732,6 +804,30 @@ export class MyApp extends LitElement {
           `}
         </div>
       </div>
+      
+      <!-- Load Template Modal -->
+      ${this._showLoadTemplateModal ? html`
+        <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100;">
+            <div style="background: #1f2937; padding: 2rem; border-radius: 0.5rem; width: 400px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                <h3 style="margin-top: 0; color: #3b82f6; text-align: center;">Load Template</h3>
+                <p style="color: #ef4444; font-size: 0.8rem; margin-bottom: 1rem; text-align: center;">Warning: This will overwrite current game data.</p>
+                
+                <select 
+                    style="width: 100%; padding: 0.75rem; margin-bottom: 1.5rem; border-radius: 0.25rem; border: 1px solid #374151; background-color: #111827; color: white;"
+                    @change="${(e: Event) => this._selectedTemplateId = (e.target as HTMLSelectElement).value}"
+                >
+                    <option value="">Select a template...</option>
+                    ${this._templates.map(t => html`<option value="${t.id}">${t.name}</option>`)}
+                </select>
+
+                <div class="button-group">
+                    <button class="btn-primary" @click="${this._confirmLoadTemplate}" ?disabled="${!this._selectedTemplateId}">Load</button>
+                    <button class="btn-cancel" @click="${() => this._showLoadTemplateModal = false}" style="background-color: #4b5563; color: white;">Cancel</button>
+                </div>
+            </div>
+        </div>
+      ` : ''}
+
     `;
   }
 }

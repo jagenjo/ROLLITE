@@ -6,6 +6,8 @@ export class GameActions extends LitElement {
     @property({ type: Boolean }) isEnded = false;
     @state() private _isOpen = false;
 
+    @property({ type: Number }) currentRound = 1;
+
     private _toggleMenu() {
         this._isOpen = !this._isOpen;
     }
@@ -16,6 +18,26 @@ export class GameActions extends LitElement {
 
     private _handleSave() {
         this.dispatchEvent(new CustomEvent('save-session', {
+            bubbles: true,
+            composed: true
+        }));
+        this._closeMenu();
+    }
+
+    private _handleSaveTemplate() {
+        const name = prompt("Enter a name for this template:");
+        if (name) {
+            this.dispatchEvent(new CustomEvent('save-template', {
+                detail: { name },
+                bubbles: true,
+                composed: true
+            }));
+        }
+        this._closeMenu();
+    }
+
+    private _handleLoadTemplate() {
+        this.dispatchEvent(new CustomEvent('request-load-template', {
             bubbles: true,
             composed: true
         }));
@@ -49,6 +71,10 @@ export class GameActions extends LitElement {
                     <div class="menu-overlay" @click="${this._closeMenu}"></div>
                     <div class="dropdown-menu">
                         <button @click="${this._handleSave}">Save to Server</button>
+                        ${this.currentRound === 1 ? html`
+                            <button @click="${this._handleSaveTemplate}">Save as Template</button>
+                            <button @click="${this._handleLoadTemplate}">Load Template</button>
+                        ` : ''}
                         <button @click="${this._handleDownload}">Download JSON</button>
                         ${!this.isEnded ? html`
                             <button class="delete-btn" @click="${this._handleEnd}">End Game</button>

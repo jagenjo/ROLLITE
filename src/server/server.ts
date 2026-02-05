@@ -135,6 +135,24 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('loadTemplateIntoSession', (sessionId, templateId) => {
+        const success = gameManager.loadTemplateIntoSession(sessionId, templateId);
+        if (success) {
+            const session = gameManager.getSession(sessionId);
+            if (session) {
+                // Determine if we need to emit 'newScene' or just 'gameStateUpdate'
+                // gameStateUpdate should enable full refresh
+                io.to(sessionId).emit('gameStateUpdate', session);
+
+                // Emitting newScene might be redundant if the client re-renders on gameStateUpdate,
+                // but if we want to ensure the scene display updates immediately:
+                if (session.currentScene) {
+                    io.to(sessionId).emit('newScene', session.currentScene);
+                }
+            }
+        }
+    });
+
     socket.on('createPlayer', (sessionId, name, avatarIndex, badges) => {
         const player = gameManager.createPlayer(sessionId, name, avatarIndex, badges);
         if (player) {
@@ -387,4 +405,27 @@ httpServer.listen(PORT, () => {
 });
 
 // Persistence on shutdown
-const saveState = () 
+const saveState = () => {
+    console.log('Saving game state...');
+    const sessions = gameManager.getAllSessions();
+    const sessionIds = sessions.map(s => s.sessionId);
+
+    // Save index
+    fileStorage.saveGameIndex({ sessions: sessionIds });
+
+    // Save each session
+    for (const session of sessions) {
+        fileStorage.saveGame(session.sessionId, session);
+    }
+    console.log('Game state saved.');
+};
+
+process.on('SIGINT', () => {
+    saveState();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    saveState();
+    process.exit(0);
+});

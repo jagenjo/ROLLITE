@@ -63,16 +63,21 @@ export interface ServerToClientEvents {
     newMessage: (message: Message) => void;
     error: (message: string) => void;
     systemStatsUpdate: (stats: SessionSummary[]) => void;
+    templatesList: (templates: { id: string, name: string }[]) => void;
+    templateSaved: (success: boolean) => void;
 }
 
 export interface ClientToServerEvents {
     joinSession: (sessionId: string, playerId: string) => void;
-    createSession: (token: string, name: string, gameName: string, avatarIndex?: number) => void;
+    createSession: (token: string, name: string, gameName: string, avatarIndex?: number, templateId?: string) => void;
     createPlayer: (sessionId: string, name: string, avatarIndex: number, badges: { name: string, hidden: boolean }[]) => void;
     getSystemStats: () => void;
     spectateSession: (sessionId: string) => void;
     deleteSession: (sessionId: string) => void;
     saveSession: (sessionId: string) => void;
+    getTemplates: () => void;
+    saveAsTemplate: (sessionId: string, templateName: string) => void;
+    loadTemplateIntoSession: (sessionId: string, templateId: string) => void;
     endSession: (sessionId: string) => void;
     submitAction: (action: string, token: string) => void;
     postMessage: (content: string, token: string) => void;
