@@ -1,0 +1,39 @@
+{
+    "name": "rollite",
+    "version": "1.0.0",
+    "description": "Unified Rollite Application",
+    "type": "module",
+    "scripts": {
+        "dev": "nodemon --exec tsx src/server/server.ts",
+        "dev:server": "nodemon --exec tsx src/server/server.ts",
+        "dev:client": "vite",
+        "build": "npm run build:client && npm run build:server",
+        "build:client": "vite build",
+        "build:server": "tsc -p tsconfig.server.json",
+        "start": "node dist/server/server/server.js",
+        "test": "ts-node src/server/tests/game_flow.test.ts"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^5.1.0",
+        "lit": "^3.3.1",
+        "marked": "^17.0.1",
+        "multer": "^2.0.2",
+        "socket.io": "^4.8.1",
+        "socket.io-client": "^4.8.1"
+    },
+    "devDependencies": {
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.5",
+        "@types/multer": "^2.0.0",
+        "@types/node": "^24.10.1",
+        "@types/socket.io": "^3.0.2",
+        "concurrently": "^9.1.0",
+        "nodemon": "^3.1.11",
+        "ts-node": "^10.9.2",
+        "tsx": "^4.21.0",
+        "typescript": "~5.9.3",
+        "vite": "^5.4.11"
+    }
+}
