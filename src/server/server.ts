@@ -15,15 +15,104 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Global logging middleware
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+});
+
 app.use(express.static('public'));
+app.use('/data/images', express.static('data/images'));
+
 const isDev = process.env.NODE_ENV !== 'production';
 let viteServer: import('vite').ViteDevServer | undefined;
+
+// Configure Multer
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        // Use a more robust approach for destination
+        const sessionId = req.body.sessionId || 'unknown';
+        // Sanitize sessionId to prevent directory traversal
+        const safeSessionId = sessionId.replace(/[^a-zA-Z0-9-]/g, '_');
+        const uploadPath = path.join('public', 'uploads', safeSessionId);
+
+        try {
+            if (!fs.existsSync(uploadPath)) {
+                fs.mkdirSync(uploadPath, { recursive: true });
+            }
+            cb(null, uploadPath);
+        } catch (err) {
+            console.error('Error creating upload directory:', err);
+            cb(err as Error, '');
+        }
+    },
+    filename: (req, file, cb) => {
+        // Simple sanitization: keep extension, generate unique name or keep original if safe
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+        cb(null, `${Date.now()}_${safeName}`);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB limit
+    }
+});
+
+// Define API routes BEFORE Vite middleware to ensure they are not intercepted
+app.post('/upload', (req, res, next) => {
+    console.log('Upload request received');
+    upload.single('image')(req, res, (err) => {
+        if (err) {
+            console.error('Multer error:', err);
+            return res.status(500).send(err.message);
+        }
+        next();
+    });
+}, (req, res) => {
+    console.log('File uploaded successfully');
+    if (!req.file) {
+        res.status(400).send('No file uploaded.');
+        return;
+    }
+    const sessionId = req.body.sessionId;
+    const fileUrl = `/uploads/${sessionId}/${req.file.filename}`;
+    res.json({ url: fileUrl });
+});
+
+app.get('/api/images', (req, res) => {
+    const imagesDir = path.join(process.cwd(), 'data', 'images');
+    if (!fs.existsSync(imagesDir)) {
+        return res.json([]);
+    }
+
+    fs.readdir(imagesDir, (err, files) => {
+        if (err) {
+            console.error('Error reading images directory:', err);
+            return res.status(500).json({ error: 'Failed to list images' });
+        }
+
+        const imageFiles = files.filter(file => {
+            const ext = path.extname(file).toLowerCase();
+            return ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext);
+        });
+
+        res.json(imageFiles);
+    });
+});
 
 if (isDev) {
     console.log('Starting in Development Mode with Vite Middleware...');
     const vite = await import('vite');
     viteServer = await vite.createServer({
-        server: { middlewareMode: true },
+        server: {
+            middlewareMode: true,
+            watch: {
+                ignored: ['**/public/uploads/**', '**/data/**']
+            }
+        },
         appType: 'custom',
         root: '.'
     });
@@ -39,9 +128,6 @@ if (isDev) {
         }
     }));
 }
-
-// Serve public folder (uploads, etc) - accessible in both modes
-app.use(express.static('public'));
 
 // Serve index.html for unknown routes (SPA support)
 app.get(/^(?!\/socket.io\/|(?:\/api\/)|(?:\/upload)).*$/, async (req, res) => {
@@ -61,25 +147,6 @@ app.get(/^(?!\/socket.io\/|(?:\/api\/)|(?:\/upload)).*$/, async (req, res) => {
         res.sendFile(path.resolve('dist/client/index.html'));
     }
 });
-
-// Configure Multer
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const sessionId = req.body.sessionId || 'unknown';
-        const uploadPath = path.join('public', 'uploads', sessionId);
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        // Simple sanitization: keep extension, generate unique name or keep original if safe
-        const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-        cb(null, `${Date.now()}_${safeName}`);
-    }
-});
-
-const upload = multer({ storage: storage });
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
@@ -383,17 +450,6 @@ io.on('connection', (socket) => {
         const stats = gameManager.getAllSessions();
         socket.emit('systemStatsUpdate', stats);
     });
-});
-
-
-app.post('/upload', upload.single('image'), (req, res) => {
-    if (!req.file) {
-        res.status(400).send('No file uploaded.');
-        return;
-    }
-    const sessionId = req.body.sessionId; // Multer text fields are available here
-    const fileUrl = `/uploads/${sessionId}/${req.file.filename}`;
-    res.json({ url: fileUrl });
 });
 
 app.get('/', (req, res) => {

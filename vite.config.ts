@@ -17,6 +17,9 @@ export default defineConfig({
             '/upload': {
                 target: 'http://localhost:4001'
             }
+        },
+        watch: {
+            ignored: ['**/public/uploads/**']
         }
     }
 });

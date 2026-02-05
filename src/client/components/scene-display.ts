@@ -24,9 +24,12 @@ export class SceneDisplay extends LitElement {
   @property({ type: Boolean }) isRoundActive = false;
 
   @state() private _isEditing = false;
+  @state() private _isDragging = false;
   private _editDescription = '';
 
   @state() private _chatInputValue = '';
+  @state() private _showImageModal = false;
+  @state() private _availableImages: string[] = [];
 
   static styles = css`
     :host {
@@ -58,6 +61,10 @@ export class SceneDisplay extends LitElement {
         margin: 0;
         font-size: 1.25rem;
         color: #e5e7eb;
+    }
+
+    p { 
+      text-indent: 30px;
     }
 
     .image-container {
@@ -94,6 +101,7 @@ export class SceneDisplay extends LitElement {
         height: auto;
         border-radius: 0.25rem;
         margin: 1rem 0;
+      transform: translate(-30px, 0px); /*avoids indenting image*/        
     }
 
     button {
@@ -118,6 +126,14 @@ export class SceneDisplay extends LitElement {
     .edit-form {
       padding: 1.5rem;
       border-bottom: 1px solid #4b5563;
+      transition: background-color 0.2s, border-color 0.2s;
+      border: 2px dashed transparent; 
+    }
+
+    .edit-form.dragging {
+      background-color: rgba(59, 130, 246, 0.1);
+      border-color: #3b82f6; 
+      border-style: dashed;
     }
 
     .form-group {
@@ -271,6 +287,101 @@ export class SceneDisplay extends LitElement {
     ::-webkit-scrollbar-thumb:hover {
       background: #6b7280;
     }
+
+    /* MODAL STYLES */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.75);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background-color: #1f2937;
+        border-radius: 0.5rem;
+        width: 80%;
+        max-width: 800px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #4b5563;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    .modal-header {
+        padding: 1rem;
+        border-bottom: 1px solid #4b5563;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        color: #e5e7eb;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        color: #9ca3af;
+        cursor: pointer;
+        font-size: 1.5rem;
+    }
+
+    .modal-close:hover {
+        color: white;
+    }
+
+    .image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1rem;
+        padding: 1rem;
+        overflow-y: auto;
+    }
+
+    .gallery-item {
+        cursor: pointer;
+        border: 2px solid transparent;
+        border-radius: 0.25rem;
+        overflow: hidden;
+        transition: all 0.2s;
+        aspect-ratio: 1;
+        position: relative;
+    }
+
+    .gallery-item:hover {
+        border-color: #3b82f6;
+        transform: scale(1.05);
+    }
+
+    .gallery-item img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .gallery-item-name {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
   `;
 
   private _startRound() {
@@ -311,19 +422,51 @@ export class SceneDisplay extends LitElement {
     this._isEditing = false;
   }
 
+  private _handleDragEnter(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    this._isDragging = true;
+    console.log('Drag entering zone');
+  }
+
+  private _handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set to false if we are leaving the main container, not entering a child
+    if ((e.relatedTarget as Node) === null || !this.shadowRoot?.contains(e.relatedTarget as Node)) {
+      // Simple logic for now, usually checking contains is safer but dragleave relates to the element itself
+      // Actually, if we use a specific overlay div it is easier. 
+      // For now let's just use a timeout or check coordinates? 
+      // Simplest: just set false. If we re-enter child, dragOver sets correct cursor but maybe not state?
+      // DragOver fires continuously.
+      this._isDragging = false;
+      console.log('Drag leaving zone');
+    }
+  }
+
   private _handleDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    if (!this._isDragging) this._isDragging = true;
+    // Essential for allowing drop
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
   }
 
   private async _handleDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    this._isDragging = false;
+    console.log('Drop detected', e.dataTransfer);
 
     if (e.dataTransfer && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
+      console.log('File dropped:', file.type, file.name);
       if (file.type.startsWith('image/')) {
         await this._uploadImage(file);
+      } else {
+        alert('Please drop an image file.');
       }
     }
   }
@@ -369,6 +512,41 @@ export class SceneDisplay extends LitElement {
       console.error('Error uploading image:', err);
       alert('Error uploading image');
     }
+  }
+
+  private async _openImageGallery() {
+    try {
+      const response = await fetch('/api/images');
+      if (response.ok) {
+        this._availableImages = await response.json();
+        this._showImageModal = true;
+      } else {
+        console.error('Failed to fetch images');
+      }
+    } catch (e) {
+      console.error('Error fetching images:', e);
+    }
+  }
+
+  private _closeImageGallery() {
+    this._showImageModal = false;
+  }
+
+  private _insertGalleryImage(imageName: string) {
+    const markdown = `\n![${imageName}](/data/images/${imageName})\n`;
+
+    const textarea = this.shadowRoot?.querySelector('textarea');
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = this._editDescription;
+      this._editDescription = text.substring(0, start) + markdown + text.substring(end);
+      this.requestUpdate();
+    } else {
+      this._editDescription += markdown;
+    }
+
+    this._closeImageGallery();
   }
 
   private _handleChatInput(e: Event) {
@@ -440,7 +618,9 @@ export class SceneDisplay extends LitElement {
 
         ${this._isEditing && this.viewingRound === this.currentRound ? html`
             <div 
-                class="edit-form" 
+                class="edit-form ${this._isDragging ? 'dragging' : ''}" 
+                @dragenter="${this._handleDragEnter}"
+                @dragleave="${this._handleDragLeave}"
                 @dragover="${this._handleDragOver}" 
                 @drop="${this._handleDrop}"
             >
@@ -451,6 +631,14 @@ export class SceneDisplay extends LitElement {
                         @input="${(e: Event) => this._editDescription = (e.target as HTMLTextAreaElement).value}"
                         placeholder="Describe the scene..."
                     ></textarea>
+                </div>
+
+                <div class="form-group">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <button @click="${(e: Event) => { e.preventDefault(); this._openImageGallery(); }}" style="background-color: #3b82f6; font-size: 0.875rem;">
+                            Insert Image from Gallery
+                        </button>
+                    </div>
                 </div>
 
                 <div class="button-row">
@@ -539,6 +727,30 @@ export class SceneDisplay extends LitElement {
                 ` : ''}
             </div>
 
+        ` : ''}
+        
+        ${this._showImageModal ? html`
+            <div class="modal-overlay" @click="${this._closeImageGallery}">
+                <div class="modal-content" @click="${(e: Event) => e.stopPropagation()}">
+                    <div class="modal-header">
+                        <h3>Select Image</h3>
+                        <button class="modal-close" @click="${this._closeImageGallery}">&times;</button>
+                    </div>
+                    <div class="image-grid">
+                        ${this._availableImages.map(img => html`
+                            <div class="gallery-item" @click="${() => this._insertGalleryImage(img)}">
+                                <img src="/data/images/${img}" loading="lazy" alt="${img}">
+                                <div class="gallery-item-name">${img}</div>
+                            </div>
+                        `)}
+                        ${this._availableImages.length === 0 ? html`
+                            <div style="grid-column: 1/-1; text-align: center; padding: 2rem; color: #9ca3af;">
+                                No images found in data/images
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
         ` : ''}
         
       </div>
