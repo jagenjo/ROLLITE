@@ -335,19 +335,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('submitAction', (action, token) => {
-        const playerId = token || socket.id;
-        const room = Array.from(socket.rooms).find(r => r !== socket.id && gameManager.getSession(r));
-
-        if (room) {
-            console.log('Received submitAction:', action, 'from', playerId, 'in room', room);
-            const session = gameManager.submitAction(room, playerId, action);
-            if (session) {
-                console.log('Action submitted, emitting update to room:', room);
-                io.to(room).emit('gameStateUpdate', session);
-            }
-        }
-    });
 
     socket.on('nextRound', () => {
         for (const room of socket.rooms) {
@@ -522,18 +509,9 @@ io.on('connection', (socket) => {
         socket.emit('systemStatsUpdate', stats);
     });
 
-    socket.on('generateNextRound', async (sessionId) => {
-        // Security check: Only director can trigger this? 
-        // For now, we trust the UI to only show button to director, 
-        // but ideally we check if socket.id is the director.
+    const handleGenerateNextRound = async (sessionId: string, initiatorSocket?: any) => {
         const session = gameManager.getSession(sessionId);
-        if (!session) return;
-
-        // Director check
-        if (session.director.id !== socket.id && session.director.id !== (socket.data as any).playerId) {
-            // weak check compatible with current loose auth
-            // console.warn('Non-director attempted to generate round');
-        }
+        if (!session || session.status === 'WAITING_AI') return;
 
         console.log(`Generating next round for session ${sessionId}...`);
 
@@ -555,7 +533,7 @@ io.on('connection', (socket) => {
 
             console.log('LLM Response generated:', llmResponse);
 
-            const updatedSession = gameManager.applyNextRoundUpdates(
+            let updatedSession = gameManager.applyNextRoundUpdates(
                 sessionId,
                 llmResponse.description,
                 llmResponse.characterUpdates,
@@ -564,13 +542,70 @@ io.on('connection', (socket) => {
             );
 
             if (updatedSession) {
+                // If AutoGame is ON, automatically START the round
+                if (updatedSession.autoGame) {
+                    console.log(`AutoGame: starting round automatically for session ${sessionId}`);
+                    const startedSession = gameManager.startRound(sessionId);
+                    if (startedSession) {
+                        updatedSession = startedSession;
+                    }
+                }
                 io.to(sessionId).emit('gameStateUpdate', updatedSession);
             }
         } catch (err) {
-            console.error('Error generating round:', err);
+            const errorMsg = err instanceof Error ? err.message : 'Failed to generate round';
+            console.error(`Error generating round for ${sessionId}:`, errorMsg);
+
             session.status = 'INACTIVE';
             io.to(sessionId).emit('gameStateUpdate', session);
-            socket.emit('llmError', err instanceof Error ? err.message : 'Failed to generate round');
+
+            // Broadcast error to everyone so players know why it stopped, 
+            // especially if director is offline.
+            io.to(sessionId).emit('llmError', errorMsg);
+        }
+    };
+
+    socket.on('generateNextRound', async (sessionId) => {
+        await handleGenerateNextRound(sessionId, socket);
+    });
+
+    socket.on('submitAction', (action, token) => {
+        const playerId = token || socket.id;
+        const sessionId = socket.data.sessionId || Array.from(socket.rooms).find(r => r !== socket.id && gameManager.getSession(r));
+
+        if (sessionId) {
+            console.log('Received submitAction:', action, 'from', playerId, 'in session', sessionId);
+            const session = gameManager.submitAction(sessionId, playerId, action);
+            if (session) {
+                console.log('Action submitted, emitting update to room:', sessionId);
+                io.to(sessionId).emit('gameStateUpdate', session);
+
+                // AutoGame trigger
+                if (session.autoGame && session.isRoundActive) {
+                    // Check if all players (excluding director) have submitted
+                    if (session.submittedActions.length >= session.players.length - 1) {
+                        console.log(`AutoGame: all players submitted, automatically moving to generation`);
+                        gameManager.nextRound(sessionId); // Ends current round activity
+                        handleGenerateNextRound(sessionId, socket);
+                    }
+                }
+            }
+        }
+    });
+
+    socket.on('toggleAutoGame', (sessionId, autoGame) => {
+        const session = gameManager.toggleAutoGame(sessionId, autoGame);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
+    socket.on('deletePlayer', (sessionId, playerId) => {
+        console.log(`Server: Received deletePlayer for session ${sessionId}, player ${playerId}`);
+        const session = gameManager.deletePlayer(sessionId, playerId);
+        if (session) {
+            console.log(`Server: Player ${playerId} deleted. New player count: ${session.players.length}`);
+            io.to(sessionId).emit('gameStateUpdate', session);
         }
     });
 

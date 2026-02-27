@@ -245,6 +245,17 @@ export class CharacterSheet extends LitElement {
         }
     }
 
+    private _deletePlayer() {
+        if (!this.player) return;
+        if (confirm(`Are you sure you want to PERMANENTLY delete ${this.player.name}? This action cannot be undone.`)) {
+            this.dispatchEvent(new CustomEvent('delete-player', {
+                detail: { playerId: this.player.id },
+                bubbles: true,
+                composed: true
+            }));
+        }
+    }
+
     private _close() {
         this.dispatchEvent(new CustomEvent('close'));
     }
@@ -320,7 +331,20 @@ export class CharacterSheet extends LitElement {
             <div class="modal-overlay" @click="${this._handleBackdropClick}">
                 <div class="sheet-container">
                     <div class="header">
-                        <div style="font-size: 1.5rem; font-weight: bold;">Character Sheet</div>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="font-size: 1.5rem; font-weight: bold;">Character Sheet</div>
+                            ${this.isDirector ? html`
+                                <button 
+                                    @click="${this._deletePlayer}" 
+                                    style="background: #1f2937; color: #ef4444; border: 1px solid #ef4444; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete Character
+                                </button>
+                            ` : ''}
+                        </div>
                         <button class="close-btn" @click="${this._close}">&times;</button>
                     </div>
 

@@ -35,6 +35,7 @@ To generate the description for the next round keep the next rules in mind:
 - Use the player's status to display player visible state, like sleeping, dead, etc.
 - Do not use the player's status for thoughts or internal information.
 - You can create goals internally to track the progress of players, but do not reveal them unless the players discover them on their own.
+- Goals should be milestones to be achieved by players, important quests. Not common actions.
 - If a character gains an item or an skill, use the badges to store that information. 
 - If the character loses an item or an skill, remove the badge.
 - Use the hidden badges to track player state that is not visible to players or hidden state. For example, if a player picked a disease or a curse, you can add a hidden badge to track that.
@@ -208,9 +209,9 @@ export class LLMService {
             if (i == 0) return; //skip director
             prompt += `${i + 1}. ${p.name} (ID: ${p.id}): Status="${p.statusText || ''}"`;
             if (p.background) {
-                prompt += `\n  Background: "${p.background}"`;
+                prompt += `\n  Background: "${p.background}"\n`;
             }
-            prompt += `Action this round: "${lastMessages.find(m => m.senderId == p.id && m.isAction)?.content || ''}"`;
+            prompt += `Action this round: "${lastMessages.find(m => m.senderId == p.id && m.isAction)?.content || ''}"\n`;
             prompt += `\n`;
         });
 

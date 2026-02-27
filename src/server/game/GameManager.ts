@@ -63,7 +63,11 @@ export class GameManager {
                     messages: [],
                     history: [],
                     status: 'INACTIVE',
-                    createdAt: Date.now()
+                    createdAt: Date.now(),
+                    lastRoundAt: Date.now(),
+                    goals: [],
+                    directives: '',
+                    autoGame: false
                 };
             }
         } else {
@@ -288,7 +292,35 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        session.players_online = session.players.filter(p => p.id !== playerId);
+        session.players_online = session.players_online?.filter(p => p.id !== playerId);
+        return session;
+    }
+
+    deletePlayer(sessionId: string, playerId: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        // Permanent removal from session
+        session.players = session.players.filter(p => p.id !== playerId);
+        session.players_online = session.players_online?.filter(p => p.id !== playerId);
+
+        // Remove from submitted actions
+        session.submittedActions = session.submittedActions.filter(id => id !== playerId);
+
+        // Cleanup pending scene data
+        if (session.pendingScene) {
+            if (session.pendingScene.playerStatuses) delete session.pendingScene.playerStatuses[playerId];
+            if (session.pendingScene.playerBadges) delete session.pendingScene.playerBadges[playerId];
+            if (session.pendingScene.privateMessages) delete session.pendingScene.privateMessages[playerId];
+        }
+
+        // Cleanup current scene data
+        if (session.currentScene) {
+            if (session.currentScene.playerStatuses) delete session.currentScene.playerStatuses[playerId];
+            if (session.currentScene.playerBadges) delete session.currentScene.playerBadges[playerId];
+            if (session.currentScene.privateMessages) delete session.currentScene.privateMessages[playerId];
+        }
+
         return session;
     }
 
@@ -323,7 +355,9 @@ export class GameManager {
         };
 
         session.messages.push(message);
-        session.submittedActions.push(playerId);
+        if (!session.submittedActions.includes(playerId)) {
+            session.submittedActions.push(playerId);
+        }
         console.log('Action added. New submittedActions:', session.submittedActions);
         return session;
     }
@@ -408,6 +442,13 @@ export class GameManager {
 
         if (!session.goals) session.goals = [];
         session.goals.push({ description, isCompleted: false });
+        return session;
+    }
+
+    toggleAutoGame(sessionId: string, autoGame: boolean): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+        session.autoGame = autoGame;
         return session;
     }
 

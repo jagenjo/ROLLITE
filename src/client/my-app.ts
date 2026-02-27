@@ -601,6 +601,18 @@ export class MyApp extends LitElement {
     }
   }
 
+  private _handleDeletePlayer(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('deletePlayer', this._gameState.sessionId, e.detail.playerId);
+    }
+  }
+
+  private _handleToggleAutoGame(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('toggleAutoGame', this._gameState.sessionId, e.detail.autoGame);
+    }
+  }
+
   private _handleUpdatePlayerAvatar(e: CustomEvent) {
     if (!this._gameState?.sessionId && this._socket) return;
     this._socket?.emit('updatePlayerAvatar', e.detail.playerId, e.detail.avatarIndex);
@@ -896,6 +908,7 @@ export class MyApp extends LitElement {
               .goals="${this._gameState?.goals || []}"
               .directives="${this._gameState?.directives || ''}"
               .isGenerating="${this._isGenerating}"
+              .autoGame="${this._gameState?.autoGame || false}"
               @next-round="${this._handleNextRound}"
               @start-round="${this._handleStartRound}"
               @update-directives="${this._handleUpdateDirectives}"
@@ -913,6 +926,8 @@ export class MyApp extends LitElement {
               @update-player-action="${this._handleUpdatePlayerAction}"
               @generate-next-round="${this._handleGenerateNextRound}"
               @show-plot-summary="${this._handleShowPlotSummary}"
+              @auto-game-toggle="${this._handleToggleAutoGame}"
+              @delete-player="${this._handleDeletePlayer}"
             ></director-dashboard>
           ` : html`
             <players-list

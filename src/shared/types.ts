@@ -54,6 +54,7 @@ export interface GameState {
     lastRoundAt?: number;
     goals?: Goal[];
     directives?: string;
+    autoGame?: boolean;
 }
 
 export interface SessionSummary {
@@ -114,6 +115,8 @@ export interface ClientToServerEvents {
     addGoal: (sessionId: string, description: string) => void;
     updatePlayerAction: (sessionId: string, playerId: string, action: string) => void;
     updateGameSummary: (sessionId: string, summary: string) => void;
+    toggleAutoGame: (sessionId: string, autoGame: boolean) => void;
+    deletePlayer: (sessionId: string, playerId: string) => void;
 }
 
 export interface InterServerEvents {

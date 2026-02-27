@@ -26,6 +26,7 @@ export class DirectorDashboard extends LitElement {
   @property({ type: Array }) goals: Goal[] = [];
   @property({ type: String }) directives: string = '';
   @property({ type: Boolean }) isGenerating = false;
+  @property({ type: Boolean }) autoGame = false;
 
   @state() private _newPlayerName = '';
   @state() private _newPlayerAvatar = 0;
@@ -56,6 +57,16 @@ export class DirectorDashboard extends LitElement {
 
   private _closeCharacterSheet() {
     this._selectedPlayerId = null;
+  }
+
+  private _handleDeletePlayer(e: CustomEvent) {
+    this._selectedPlayerId = null;
+    // The event already bubbles, but let's re-dispatch to be sure it reaches MyApp
+    this.dispatchEvent(new CustomEvent('delete-player', {
+      detail: e.detail,
+      bubbles: true,
+      composed: true
+    }));
   }
 
   private _onAvatarSelected(e: CustomEvent) {
@@ -130,23 +141,43 @@ export class DirectorDashboard extends LitElement {
   private _renderDirectives() {
     return html`
       <div class="panel" style="">
-        <h3 style="margin: 0 0 1rem 0; color: #8b5cf6; display: flex; align-items: center; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; color: #8b5cf6;">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
             AI Directives
-          </div>
-          <button 
-            @click="${() => {
+          </h3>
+          <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.25rem 0.6rem; border-radius: 1rem; border: 1px solid ${this.autoGame ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255,255,255,0.05)'}; transition: all 0.3s;">
+                <span style="font-size: 0.65rem; font-weight: bold; letter-spacing: 0.05em; color: ${this.autoGame ? '#10b981' : '#6b7280'}; transition: all 0.3s;">AUTOGAME</span>
+                <label class="switch">
+                    <input 
+                        type="checkbox" 
+                        .checked="${this.autoGame}"
+                        @change="${(e: Event) => {
+        const checked = (e.target as HTMLInputElement).checked;
+        this.dispatchEvent(new CustomEvent('auto-game-toggle', {
+          detail: { autoGame: checked },
+          bubbles: true,
+          composed: true
+        }));
+      }}"
+                    >
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <button 
+              @click="${() => {
         this._isEditingDirectives = !this._isEditingDirectives;
         if (this._isEditingDirectives) this._localDirectives = this.directives;
       }}" 
-            style="background: transparent; color: #8b5cf6; font-size: 0.75rem; padding: 0.25rem 0.5rem; text-decoration: underline;"
-          >
-            ${this._isEditingDirectives ? 'Cancel' : 'Edit'}
-          </button>
-        </h3>
+              style="background: transparent; border: 1px solid #4b5563; border-radius: 0.25rem; color: #8b5cf6; font-size: 0.7rem; padding: 0.2rem 0.5rem; cursor: pointer;"
+            >
+              ${this._isEditingDirectives ? 'Cancel' : 'Edit'}
+            </button>
+          </div>
+        </div>
         
         ${this._isEditingDirectives ? html`
           <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -162,9 +193,10 @@ export class DirectorDashboard extends LitElement {
           </div>
         ` : html`
           <div style="font-size: 0.9rem; color: #9ca3af; line-height: 1.5; font-style: italic; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 0.25rem;">
-            ${this.directives || 'No special directives set. The AI will follow standard DM practices.'}
+            ${this.directives || html`<span style="color: #47454dff;">No special directives set. The AI will follow standard DM practices.</span>`
+        }
           </div>
-        `}
+  `}
         <p style="font-size: 0.7rem; color: #6b7280; margin-top: 0.25rem;">
           Directives are passed to the AI to guide the narrative and tone of the game.
         </p>
@@ -447,6 +479,55 @@ export class DirectorDashboard extends LitElement {
       animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       cursor: wait;
     }
+
+    /* Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 32px;
+      height: 18px;
+    }
+
+    .switch input { 
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #374151;
+      transition: .4s;
+      border-radius: 18px;
+      border: 1px solid #4b5563;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 12px;
+      width: 12px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #9ca3af;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: rgba(16, 185, 129, 0.2);
+      border-color: #10b981;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(14px);
+      background-color: #10b981;
+    }
   `;
 
   private _createPlayer() {
@@ -709,6 +790,7 @@ export class DirectorDashboard extends LitElement {
         .statusText="${selectedPlayerStatus}"
         .sessionId="${this.sessionId}"
         @close="${this._closeCharacterSheet}"
+        @delete-player="${this._handleDeletePlayer}"
       ></character-sheet>
       
       <!-- Avatar Selection Modal (Global) -->
