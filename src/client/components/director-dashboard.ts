@@ -43,6 +43,9 @@ export class DirectorDashboard extends LitElement {
   @state() private _editingPrivateMsgId: string | null = null;
   @state() private _tempPrivateMsg = '';
 
+  @state() private _editingPlayerActionId: string | null = null;
+  @state() private _tempPlayerAction = '';
+
   private get _isAvatarModalOpen() {
     return this._showAvatarModal;
   }
@@ -80,6 +83,30 @@ export class DirectorDashboard extends LitElement {
       }));
       this._editingPrivateMsgId = null;
       this._tempPrivateMsg = '';
+    }
+  }
+
+  private _startEditingAction(playerId: string) {
+    this._editingPlayerActionId = playerId;
+    // Find current round action if it exists
+    const actionMsg = this.messages.find(m => m.isAction && m.senderId === playerId && m.round === this.round);
+    this._tempPlayerAction = actionMsg?.content || '';
+  }
+
+  private _cancelPlayerAction() {
+    this._editingPlayerActionId = null;
+    this._tempPlayerAction = '';
+  }
+
+  private _savePlayerAction() {
+    if (this._editingPlayerActionId) {
+      this.dispatchEvent(new CustomEvent('update-player-action', {
+        detail: { playerId: this._editingPlayerActionId, action: this._tempPlayerAction },
+        bubbles: true,
+        composed: true
+      }));
+      this._editingPlayerActionId = null;
+      this._tempPlayerAction = '';
     }
   }
 
@@ -145,14 +172,14 @@ export class DirectorDashboard extends LitElement {
         <div style="margin-top: 1.5rem; border-top: 1px solid #374151; padding-top: 1rem; display: flex; justify-content: center;">
              <button 
                 @click="${this._generateNextRound}" 
-                ?disabled="${this.isGenerating || this.isEnded}"
-                class="${this.isGenerating ? 'generating' : ''}"
+                ?disabled="${this.isGenerating || this.status === 'WAITING_AI' || this.isEnded}"
+                class="${(this.isGenerating || this.status === 'WAITING_AI') ? 'generating' : ''}"
                 style="width: 100%; padding: 0.75rem; font-size: 1rem; background-color: #8b5cf6; display: flex; align-items: center; justify-content: center; gap: 0.5rem;"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                ${this.isGenerating ? 'AI is Thinking...' : 'Generate AI Round'}
+                ${(this.isGenerating || this.status === 'WAITING_AI') ? 'AI is Thinking...' : 'Generate AI Round'}
             </button>
         </div>
       </div>
@@ -178,7 +205,7 @@ export class DirectorDashboard extends LitElement {
     if (!this.goals) return null;
 
     return html`
-      <div class="panel" style="border-left: 4px solid #3b82f6;">
+      <div class="panel" style="">
         <h3 style="margin: 0 0 1rem 0; color: #3b82f6; display: flex; align-items: center; gap: 0.5rem;">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -270,6 +297,27 @@ export class DirectorDashboard extends LitElement {
         composed: true
       }));
     }
+  }
+
+  private _startRound() {
+    this.dispatchEvent(new CustomEvent('start-round', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _triggerNextRound() {
+    this.dispatchEvent(new CustomEvent('next-round', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _showPlotSummary() {
+    this.dispatchEvent(new CustomEvent('show-plot-summary', {
+      bubbles: true,
+      composed: true
+    }));
   }
 
   static styles = css`
@@ -465,8 +513,24 @@ export class DirectorDashboard extends LitElement {
       <div class="panel">
         <h3 style="margin: 0; color: #3b82f6;">Director Dashboard</h3>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-top: 1px solid #374151; padding-top: 0.5rem;">
-            <div style="background: #374151; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; color: ${this.status === 'WAITING_AI' ? '#fbbf24' : this.status === 'ROUND_ACTIVE' ? '#10b981' : '#9ca3af'}; border: 1px solid currentColor;">
+            <div style="background: #374151; padding: 0.25rem 0.75rem; margin-right: 0.7em; border-radius: 0.5rem; font-size: 0.75rem; font-weight: bold; color: ${this.status === 'WAITING_AI' ? '#fbbf24' : this.status === 'ROUND_ACTIVE' ? '#10b981' : '#9ca3af'}; border: 1px solid currentColor;">
                 STATUS: ${this.status}
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem;">
+                ${!this.isEnded ? html`
+                    ${!this.isRoundActive ? html`
+                        <button @click="${this._startRound}" style="background-color: #3b82f6; border: none; padding: 0.4rem 1rem; font-size: 0.875rem;">Start Round</button>
+                    ` : html`
+                         <button @click="${this._triggerNextRound}" style="background-color: #fbbf24; color: #1f2937; border: none; padding: 0.4rem 1rem; font-size: 0.875rem;">Next Round</button>
+                    `}
+                    <button 
+                        @click="${this._showPlotSummary}" 
+                        style="background-color: #8b5cf6; border: none; padding: 0.4rem 1rem; font-size: 0.875rem; color: white;"
+                    >
+                        Plot Summary
+                    </button>
+                ` : ''}
             </div>
         </div>
       </div>
@@ -530,7 +594,7 @@ export class DirectorDashboard extends LitElement {
                                     ` : ''}
                                 </div>
                                 <div slot="actions" @click="${(e: Event) => e.stopPropagation()}">
-                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
                                         <button 
                                             @click="${() => this._startEditingMsg(p.id)}" 
                                             style="background-color: ${this.pendingScene?.privateMessages?.[p.id] ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
@@ -538,6 +602,15 @@ export class DirectorDashboard extends LitElement {
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                            </svg>
+                                        </button>
+                                        <button 
+                                            @click="${() => this._startEditingAction(p.id)}" 
+                                            style="background-color: ${actionMsg ? '#10b981' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
+                                            title="Edit Player Action"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                             </svg>
                                         </button>
                                     </div>
@@ -562,6 +635,23 @@ export class DirectorDashboard extends LitElement {
                                     <span style="font-weight: bold; opacity: 0.7;">Pending Secret:</span> "${this.pendingScene.privateMessages[p.id]}"
                                 </div>
                             ` : '')}
+
+                            ${this._editingPlayerActionId === p.id ? html`
+                                <div style="margin-top: -0.5rem; background: #111827; padding: 0.75rem; border-radius: 0 0 0.5rem 0.5rem; border: 1px solid #10b981; border-top: none; position: relative; z-index: 2; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                                    <div style="font-size: 0.75rem; color: #10b981; margin-bottom: 0.25rem; font-weight: bold;">ACTION OVERRIDE:</div>
+                                    <textarea
+                                        style="width: 90%; min-height: 80px; margin-bottom: 0.5rem; resize: vertical; background: #1f2937; color: white; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.5rem; font-family: inherit; font-size: 0.875rem;"
+                                        .value="${this._tempPlayerAction}"
+                                        @input="${(e: Event) => this._tempPlayerAction = (e.target as HTMLTextAreaElement).value}"
+                                        placeholder="Write an action for ${p.name}..."
+                                        @click="${(e: Event) => e.stopPropagation()}"
+                                    ></textarea>
+                                    <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                        <button @click="${(e: Event) => { e.stopPropagation(); this._cancelPlayerAction(); }}" style="background-color: #4b5563; font-size: 0.75rem; padding: 0.4rem 0.8rem;">Cancel</button>
+                                        <button @click="${(e: Event) => { e.stopPropagation(); this._savePlayerAction(); }}" style="background-color: #10b981; font-size: 0.75rem; padding: 0.4rem 0.8rem;">Update Action</button>
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
                   `})}
        

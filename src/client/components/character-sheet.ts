@@ -65,7 +65,7 @@ export class CharacterSheet extends LitElement {
 
         .header {
             background: #111827;
-            padding: 1.5rem;
+            padding: 0.75rem;
             display: flex;
             justify-content: space-between;
             align-items: center;

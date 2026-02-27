@@ -4,69 +4,69 @@ import type { SessionSummary } from '../../shared/types.js';
 
 @customElement('admin-dashboard')
 export class AdminDashboard extends LitElement {
-  @property({ type: Array }) stats: SessionSummary[] = [];
+    @property({ type: Array }) stats: SessionSummary[] = [];
 
-  @state() private _openMenuSessionId: string | null = null;
+    @state() private _openMenuSessionId: string | null = null;
 
-  private _toggleMenu(sessionId: string) {
-    if (this._openMenuSessionId === sessionId) {
-      this._openMenuSessionId = null;
-    } else {
-      this._openMenuSessionId = sessionId;
+    private _toggleMenu(sessionId: string) {
+        if (this._openMenuSessionId === sessionId) {
+            this._openMenuSessionId = null;
+        } else {
+            this._openMenuSessionId = sessionId;
+        }
+        this.requestUpdate();
     }
-    this.requestUpdate();
-  }
 
-  private _enterAsDirector(session: any) {
-    if (session.directorId) {
-      window.open(`/?session=${session.sessionId}&player=${session.directorId}`, '_blank');
-    } else {
-      alert('Director ID not available');
+    private _enterAsDirector(session: any) {
+        if (session.directorId) {
+            window.open(`/?session=${session.sessionId}&player=${session.directorId}`, '_blank');
+        } else {
+            alert('Director ID not available');
+        }
+        this._openMenuSessionId = null;
+        this.requestUpdate();
     }
-    this._openMenuSessionId = null;
-    this.requestUpdate();
-  }
 
-  private _saveSession(sessionId: string) {
-    this.dispatchEvent(new CustomEvent('save-session', {
-      detail: { sessionId },
-      bubbles: true,
-      composed: true
-    }));
-    this._openMenuSessionId = null;
-    this.requestUpdate();
-  }
-
-  private _endSession(sessionId: string) {
-    if (confirm('Are you sure you want to END this session?')) {
-      this.dispatchEvent(new CustomEvent('end-session', {
-        detail: { sessionId },
-        bubbles: true,
-        composed: true
-      }));
+    private _saveSession(sessionId: string) {
+        this.dispatchEvent(new CustomEvent('save-session', {
+            detail: { sessionId },
+            bubbles: true,
+            composed: true
+        }));
+        this._openMenuSessionId = null;
+        this.requestUpdate();
     }
-    this._openMenuSessionId = null;
-    this.requestUpdate();
-  }
 
-  private _deleteSession(sessionId: string) {
-    if (confirm('Are you sure you want to DELETE this session? This cannot be undone.')) {
-      this.dispatchEvent(new CustomEvent('delete-session', {
-        detail: { sessionId },
-        bubbles: true,
-        composed: true
-      }));
+    private _endSession(sessionId: string) {
+        if (confirm('Are you sure you want to END this session?')) {
+            this.dispatchEvent(new CustomEvent('end-session', {
+                detail: { sessionId },
+                bubbles: true,
+                composed: true
+            }));
+        }
+        this._openMenuSessionId = null;
+        this.requestUpdate();
     }
-    this._openMenuSessionId = null;
-    this.requestUpdate();
-  }
 
-  private _spectate(sessionId: string) {
-    window.open(`/?session=${sessionId}&spectator=true`, '_blank');
-  }
+    private _deleteSession(sessionId: string) {
+        if (confirm('Are you sure you want to DELETE this session? This cannot be undone.')) {
+            this.dispatchEvent(new CustomEvent('delete-session', {
+                detail: { sessionId },
+                bubbles: true,
+                composed: true
+            }));
+        }
+        this._openMenuSessionId = null;
+        this.requestUpdate();
+    }
 
-  render() {
-    return html`
+    private _spectate(sessionId: string) {
+        window.open(`/?session=${sessionId}&spectator=true`, '_blank');
+    }
+
+    render() {
+        return html`
           <div class="admin-dashboard">
               <div class="header">
                   <h2>System Admin Dashboard</h2>
@@ -95,12 +95,9 @@ export class AdminDashboard extends LitElement {
                                   <td>${session.sessionId}</td>
                                   <td>${session.gameName}</td>
                                   <td>${session.round}</td>
-                                  <td>${session.playerCount} / ${session.onlineCount}</td>
+                                  <td>${Math.max(0, session.onlineCount - 1)} / ${session.playerCount - 1}</td>
                                   <td>
-                                      ${session.isEnded
-        ? html`<span style="color: #ef4444; font-weight: bold;">ENDED</span>`
-        : html`<span style="color: #10b981; font-weight: bold;">ACTIVE</span>`
-      }
+                                      ${session.status}
                                   </td>
                                   <td>
                                       <div style="font-size: 0.75rem; color: #9ca3af;">
@@ -144,9 +141,9 @@ export class AdminDashboard extends LitElement {
               </div>
           </div>
       `;
-  }
+    }
 
-  static styles = css`
+    static styles = css`
       .admin-dashboard {
           color: white;
           font-family: 'Inter', sans-serif;

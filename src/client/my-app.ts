@@ -30,11 +30,14 @@ export class MyApp extends LitElement {
   @state() private _showLoadTemplateModal = false;
   @state() private _llmError = '';
   @state() private _isGenerating = false;
+  @state() private _showPlotSummary = false;
 
   @state() private _isInLobby = true;
   @state() private _viewingRound = 1;
   @state() private _userToken = '';
   @state() private _sessionId = '';
+  @state() private _latestSessionId = '';
+  @state() private _latestSessionName = '';
 
   // Admin State
   @state() private _isAdmin = false;
@@ -47,7 +50,6 @@ export class MyApp extends LitElement {
     :host {
       display: block;
       min-height: 100vh;
-      background-color: #111827; /* gray-900 */
       color: white;
       /*font-family: "Jersey 10", sans-serif;*/
       font-family: "Inter", sans-serif;
@@ -127,7 +129,7 @@ export class MyApp extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      overflow-y: auto;
+      overflow-y: hidden;
     }
 
     .sidebar {
@@ -135,7 +137,6 @@ export class MyApp extends LitElement {
       flex-direction: column;
       gap: 1rem;
       height: 100%;
-      overflow-y: hidden;
     }
 
     .lobby {
@@ -280,6 +281,9 @@ export class MyApp extends LitElement {
     if (savedAvatar) {
       this._selectedAvatarIndex = parseInt(savedAvatar, 10);
     }
+
+    this._latestSessionId = localStorage.getItem('latest_session_id') || '';
+    this._latestSessionName = localStorage.getItem('latest_session_name') || '';
   }
 
   private _initToken() {
@@ -324,8 +328,18 @@ export class MyApp extends LitElement {
 
     this._socket.on('gameStateUpdate', (state: GameState) => {
       console.log('Received gameStateUpdate:', state);
+      if (state.status !== 'WAITING_AI') {
+        this._isGenerating = false;
+      }
       const isFirstLoad = !this._gameState;
       this._gameState = state;
+
+      if (state.sessionId) {
+        localStorage.setItem('latest_session_id', state.sessionId);
+        localStorage.setItem('latest_session_name', state.gameName || 'Untitled Game');
+        this._latestSessionId = state.sessionId;
+        this._latestSessionName = state.gameName || 'Untitled Game';
+      }
 
       // Update URL if we are the director and just created the session
       if (state.director.id === this._userToken) {
@@ -435,6 +449,14 @@ export class MyApp extends LitElement {
     window.history.pushState({}, '', url);
   }
 
+  private _rejoinLatestSession() {
+    if (this._latestSessionId) {
+      this._updateUrl(this._latestSessionId);
+      this._sessionId = this._latestSessionId;
+      this._socket?.emit('joinSession', this._latestSessionId, this._userToken);
+    }
+  }
+
   private _savePlayerPrefs() {
     if (this._playerName) {
       localStorage.setItem('player_name', this._playerName);
@@ -541,6 +563,23 @@ export class MyApp extends LitElement {
   private _handleSetPendingPrivateMessage(e: CustomEvent) {
     if (this._gameState?.sessionId && this._socket) {
       this._socket.emit('setPendingPrivateMessage', e.detail.playerId, e.detail.message);
+    }
+  }
+
+  private _handleUpdatePlayerAction(e: CustomEvent) {
+    const { playerId, action } = e.detail;
+    if (this._gameState?.sessionId) {
+      this._socket?.emit('updatePlayerAction', this._gameState.sessionId, playerId, action);
+    }
+  }
+
+  private _handleShowPlotSummary() {
+    this._showPlotSummary = true;
+  }
+
+  private _handleUpdateGameSummary(e: CustomEvent) {
+    if (this._gameState?.sessionId) {
+      this._socket?.emit('updateGameSummary', this._gameState.sessionId, e.detail.summary);
     }
   }
 
@@ -718,6 +757,18 @@ export class MyApp extends LitElement {
                     <p style="color: #9ca3af; font-size: 0.875rem;">${this._sessionId}</p>
                 </div>
             ` : html`
+                ${this._latestSessionId ? html`
+                    <div style="margin-bottom: 2rem; padding-bottom: 2rem; border-bottom: 1px solid #374151; text-align: center;">
+                        <h2 style="font-size: 1rem; color: #9ca3af; margin-bottom: 1rem;">Recent Sessions</h2>
+                        <button class="btn-primary" @click="${this._rejoinLatestSession}" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Rejoin: ${this._latestSessionName}
+                        </button>
+                    </div>
+                ` : ''}
+
                 ${this._errorMessage ? html`
                     <div style="background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 0.75rem; border-radius: 0.25rem; margin-bottom: 1rem; text-align: center;">
                         ${this._errorMessage}
@@ -802,8 +853,11 @@ export class MyApp extends LitElement {
             .sessionId="${this._gameState?.sessionId || ''}"
             .llmError="${this._llmError}"
             .gameSummary="${this._gameState?.gameSummary || ''}"
+            .showSummaryModal="${this._showPlotSummary}"
             @view-round-change="${this._handleViewRoundChange}"
             @update-scene="${this._handleUpdateScene}"
+            @close-plot-summary="${() => this._showPlotSummary = false}"
+            @update-game-summary="${this._handleUpdateGameSummary}"
             @message-sent="${this._handleMessageSent}"
             @start-round="${this._handleStartRound}"
             @next-round="${this._handleNextRound}"
@@ -836,6 +890,7 @@ export class MyApp extends LitElement {
               .directorId="${this._gameState?.director.id || ''}"
               .isEnded="${!!this._gameState?.isEnded}"
               .status="${this._gameState?.status || 'INACTIVE'}"
+              .isRoundActive="${this._gameState?.isRoundActive || false}"
               .playersOnline="${this._gameState?.players_online || []}"
               .submittedActions="${this._gameState?.submittedActions || []}"
               .goals="${this._gameState?.goals || []}"
@@ -855,7 +910,9 @@ export class MyApp extends LitElement {
               @update-player-avatar="${this._handleUpdatePlayerAvatar}"
               @update-player-background="${this._handleUpdatePlayerBackground}"
               @update-player-name="${this._handleUpdatePlayerName}"
+              @update-player-action="${this._handleUpdatePlayerAction}"
               @generate-next-round="${this._handleGenerateNextRound}"
+              @show-plot-summary="${this._handleShowPlotSummary}"
             ></director-dashboard>
           ` : html`
             <players-list

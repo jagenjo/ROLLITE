@@ -510,6 +510,13 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('updatePlayerAction', (sessionId, playerId, action) => {
+        const session = gameManager.updatePlayerAction(sessionId, playerId, action);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
     socket.on('getSystemStats', () => {
         const stats = gameManager.getSessionSummaries();
         socket.emit('systemStatsUpdate', stats);
@@ -561,7 +568,16 @@ io.on('connection', (socket) => {
             }
         } catch (err) {
             console.error('Error generating round:', err);
+            session.status = 'INACTIVE';
+            io.to(sessionId).emit('gameStateUpdate', session);
             socket.emit('llmError', err instanceof Error ? err.message : 'Failed to generate round');
+        }
+    });
+
+    socket.on('updateGameSummary', (sessionId, summary) => {
+        const updatedSession = gameManager.updateGameSummary(sessionId, summary);
+        if (updatedSession) {
+            io.to(sessionId).emit('gameStateUpdate', updatedSession);
         }
     });
 });

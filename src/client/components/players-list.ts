@@ -119,6 +119,7 @@ export class PlayersList extends LitElement {
         ${this.players.map(p => {
       const avatarIdx = p.avatarIndex !== undefined ? p.avatarIndex : 0;
       const isPlayerDirector = p.id === this.director?.id;
+      if (isPlayerDirector) return;
       const online = isOnline(p.id);
 
       return html`

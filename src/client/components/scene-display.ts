@@ -24,15 +24,17 @@ export class SceneDisplay extends LitElement {
   @property({ type: Boolean }) isRoundActive = false;
   @property({ type: String }) llmError = '';
   @property({ type: String }) gameSummary = '';
+  @property({ type: Boolean }) showSummaryModal = false;
 
   @state() private _isEditing = false;
   @state() private _isDragging = false;
   private _editDescription = '';
+  @state() private _isEditingSummary = false;
+  @state() private _editSummaryValue = '';
 
   @state() private _chatInputValue = '';
   @state() private _showImageModal = false;
   @state() private _availableImages: string[] = [];
-  @state() private _showSummaryModal = false;
 
   static styles = css`
     :host {
@@ -99,6 +101,11 @@ export class SceneDisplay extends LitElement {
     .placeholder {
       color: #6b7280;
       font-style: italic;
+    }
+
+    .scene-scroll {
+      overflow-y: auto;
+      max-height: 65vh;
     }
 
     .description {
@@ -584,12 +591,31 @@ export class SceneDisplay extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     if (changedProperties.has('scene') || changedProperties.has('isDirector') || changedProperties.has('llmError')) {
-      if (this.isDirector && this.viewingRound === this.currentRound) {
-        if (!this.scene?.description && !this._isEditing) {
-          this._startEditing();
-        }
-      }
+      // Auto-edit removed per user request
     }
+  }
+
+  private _handleShowPlotSummary() {
+    this._isEditingSummary = false;
+    this._editSummaryValue = this.gameSummary || '';
+  }
+
+  private _startEditingSummary() {
+    this._isEditingSummary = true;
+    this._editSummaryValue = this.gameSummary || '';
+  }
+
+  private _saveSummary() {
+    this.dispatchEvent(new CustomEvent('update-game-summary', {
+      detail: { summary: this._editSummaryValue },
+      bubbles: true,
+      composed: true
+    }));
+    this._isEditingSummary = false;
+  }
+
+  private _cancelEditSummary() {
+    this._isEditingSummary = false;
   }
 
   render() {
@@ -614,23 +640,10 @@ export class SceneDisplay extends LitElement {
                     .viewingRound="${this.viewingRound}"
                 ></round-selector>
 
-                ${this.isDirector && this.viewingRound === this.currentRound && !this.isEnded ? html`
-                    ${!this.isRoundActive ? html`
-                        <button @click="${this._startRound}" style="background-color: #3b82f6; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Start Round</button>
-                    ` : html`
-                         <button @click="${this._triggerNextRound}" style="background-color: #fbbf24; color: #1f2937; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Next Round</button>
-                    `}
-                    <button 
-                        class="btn-primary" 
-                        style="background-color: #8b5cf6; font-size: 0.8rem; padding: 0.25rem 0.75rem;"
-                        @click="${() => this._showSummaryModal = true}"
-                    >
-                        Plot Summary
-                    </button>
-                    ${!this._isEditing ? html`
+                    ${this.isDirector && !this._isEditing ? html`
                         <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
                     ` : ''}
-                ` : ''}
+                </div>
                 ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
             </div>
             ${this.llmError ? html`
@@ -639,7 +652,6 @@ export class SceneDisplay extends LitElement {
                 <button @click="${() => this.llmError = ''}" style="background: none; border: none; padding: 0.25rem; font-size: 1rem; line-height: 1;">&times;</button>
               </div>
             ` : ''}
-        </div>
 
         ${this._isEditing && this.viewingRound === this.currentRound ? html`
             <div 
@@ -671,9 +683,11 @@ export class SceneDisplay extends LitElement {
                     <button @click="${this._cancelEditing}">Cancel</button>
                 </div>
             </div>
-        ` : ''}
+        ` : ''
+      }
 
         ${!this._isEditing || this.viewingRound < this.currentRound ? html`
+          <div class='scene-scroll'>
 
             <div class="description">
             ${displayScene?.description
@@ -721,7 +735,7 @@ export class SceneDisplay extends LitElement {
           const yOffset = -(row * 32);
 
           return html`
-                        <div class="message ${msg.senderId === this.currentUserId ? 'own' : msg.senderId === this.directorId ? 'director' : 'other'}">
+                        <div class="message ${msg.senderId === this.currentUserId ? 'own' : ''} ${msg.senderId === this.directorId ? 'director' : 'other'}">
                             <div class="message-avatar-container">
                                 <img 
                                     src="/characters.jpg" 
@@ -751,8 +765,10 @@ export class SceneDisplay extends LitElement {
                     </div>
                 ` : ''}
             </div>
+            </div>
 
-        ` : ''}
+        ` : ''
+      }
         
         ${this._showImageModal ? html`
             <div class="modal-overlay" @click="${this._closeImageGallery}">
@@ -776,13 +792,14 @@ export class SceneDisplay extends LitElement {
                     </div>
                 </div>
             </div>
-        ` : ''}
+        ` : ''
+      }
 
-      <!-- Plot Summary Modal -->
-      ${this._showSummaryModal ? html`
+<!-- Plot Summary Modal -->
+  ${this.showSummaryModal ? html`
         <div 
             style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100;"
-            @click="${() => this._showSummaryModal = false}"
+            @click="${() => { this.dispatchEvent(new CustomEvent('close-plot-summary', { bubbles: true, composed: true })); }}"
         >
             <div 
                 style="background: #1f2937; padding: 2rem; border-radius: 0.5rem; width: 600px; max-width: 90vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); position: relative;"
@@ -790,26 +807,61 @@ export class SceneDisplay extends LitElement {
             >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem;">
                     <h3 style="margin: 0; color: #8b5cf6;">Game Summary</h3>
-                    <button 
-                        @click="${() => this._showSummaryModal = false}"
-                        style="background: transparent; border: none; font-size: 1.5rem; line-height: 1; padding: 0; cursor: pointer;"
-                    >
-                        ×
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        ${this.isDirector && !this._isEditingSummary ? html`
+                            <button 
+                                @click="${this._startEditingSummary}"
+                                style="background: #3b82f6; border: none; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; color: white;"
+                            >
+                                Edit
+                            </button>
+                        ` : ''}
+                        <button 
+                            @click="${() => { this.dispatchEvent(new CustomEvent('close-plot-summary', { bubbles: true, composed: true })); }}"
+                            style="background: transparent; border: none; font-size: 1.5rem; line-height: 1; padding: 0; cursor: pointer;"
+                        >
+                            &times;
+                        </button>
+                    </div>
                 </div>
 
                 <div class="summary-content" style="font-size: 0.95rem; line-height: 1.6; color: #e5e7eb;">
-                    ${this.gameSummary ? unsafeHTML(marked.parse(this.gameSummary) as string) : html`<p style="font-style: italic; opacity: 0.7;">No summary available yet. It will be generated after the next round.</p>`}
+                    ${this._isEditingSummary ? html`
+                        <textarea
+                            style="width: 100%; min-height: 200px; padding: 0.75rem; border-radius: 0.25rem; border: 1px solid #374151; background: #111827; color: white; font-family: inherit; font-size: 0.95rem; resize: vertical;"
+                            .value="${this._editSummaryValue}"
+                            @input="${(e: Event) => this._editSummaryValue = (e.target as HTMLTextAreaElement).value}"
+                            placeholder="Type the game summary here... (Markdown supported)"
+                        ></textarea>
+                    ` : html`
+                        ${this.gameSummary ? unsafeHTML(marked.parse(this.gameSummary) as string) : html`<p style="font-style: italic; opacity: 0.7;">No summary available yet. It will be generated after the next round.</p>`}
+                    `}
                 </div>
 
-                <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
-                    <button class="btn-primary" @click="${() => this._showSummaryModal = false}">Close</button>
+                <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    ${this._isEditingSummary ? html`
+                        <button 
+                            class="btn-primary" 
+                            @click="${this._saveSummary}"
+                            style="background: #10b981;"
+                        >
+                            Save Changes
+                        </button>
+                        <button 
+                            style="background: #4b5563; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; color: white; font-weight: bold;"
+                            @click="${this._cancelEditSummary}"
+                        >
+                            Cancel
+                        </button>
+                    ` : html`
+                        <button class="btn-primary" @click="${() => { this.dispatchEvent(new CustomEvent('close-plot-summary', { bubbles: true, composed: true })); }}">Close</button>
+                    `}
                 </div>
             </div>
         </div>
-      ` : ''}        
-        
-      </div>
-    `;
+      ` : ''}
+
+</div>
+  `;
   }
 }

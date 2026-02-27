@@ -328,6 +328,41 @@ export class GameManager {
         return session;
     }
 
+    updatePlayerAction(sessionId: string, playerId: string, actionContent: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        const player = session.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        // Find existing action for this player in this round
+        let actionMessage = session.messages.find(m => m.senderId === playerId && m.round === session.round && m.isAction);
+
+        if (actionMessage) {
+            actionMessage.content = actionContent;
+            actionMessage.timestamp = Date.now();
+        } else {
+            // Create new action if doesn't exist
+            actionMessage = {
+                id: Math.random().toString(36).substring(7),
+                senderId: playerId,
+                senderName: player.name,
+                content: actionContent,
+                timestamp: Date.now(),
+                isAction: true,
+                round: session.round
+            };
+            session.messages.push(actionMessage);
+        }
+
+        // Ensure player is in submittedActions
+        if (!session.submittedActions.includes(playerId)) {
+            session.submittedActions.push(playerId);
+        }
+
+        return session;
+    }
+
     leaveSession(sessionId: string, playerId: string): GameState | null {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
@@ -341,6 +376,13 @@ export class GameManager {
         if (!session) return null;
 
         session.directives = directives;
+        return session;
+    }
+
+    updateGameSummary(sessionId: string, summary: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+        session.gameSummary = summary;
         return session;
     }
 

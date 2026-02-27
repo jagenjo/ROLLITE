@@ -112,6 +112,8 @@ export interface ClientToServerEvents {
     toggleGoalCompletion: (sessionId: string, goalIndex: number) => void;
     deleteGoal: (sessionId: string, goalIndex: number) => void;
     addGoal: (sessionId: string, description: string) => void;
+    updatePlayerAction: (sessionId: string, playerId: string, action: string) => void;
+    updateGameSummary: (sessionId: string, summary: string) => void;
 }
 
 export interface InterServerEvents {
