@@ -11,7 +11,7 @@
         "build:client": "vite build",
         "build:server": "tsc -p tsconfig.server.json",
         "start": "node dist/server/server/server.js",
-        "test": "ts-node src/server/tests/game_flow.test.ts"
+        "test": "tsx src/server/tests/game_flow.test.ts"
     },
     "dependencies": {
         "cors": "^2.8.5",

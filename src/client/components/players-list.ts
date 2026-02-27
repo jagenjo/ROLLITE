@@ -13,6 +13,7 @@ export class PlayersList extends LitElement {
   @property({ type: Object }) currentScene: any | null = null; // Scene | null
   @property({ type: Object }) pendingScene: any | null = null; // Scene | null
   @property({ type: String }) sessionId = '';
+  @property({ type: Array }) submittedActions: string[] = [];
 
   @state() private _selectedPlayerId: string | null = null;
 
@@ -138,6 +139,7 @@ export class PlayersList extends LitElement {
                     ` : ''}
 
                     ${isPlayerDirector ? html`<span slot="name-extras" class="director-badge" title="Director">★</span>` : ''}
+                    ${this.submittedActions.includes(p.id) ? html`<span slot="name-extras" style="color: #10b981; font-weight: bold;" title="Action Submitted">✓</span>` : ''}
 
                     ${!isPlayerDirector ? html`
                         <div slot="status">

@@ -1,0 +1,38 @@
+{
+  "sessionId": "TEMPLATE",
+  "gameName": "ROMA",
+  "director": {
+    "id": "ow0tr12wi5mm2a1a9c",
+    "name": "master",
+    "avatarIndex": 0
+  },
+  "players": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "master",
+      "avatarIndex": 0
+    },
+    {
+      "id": "p4a5ku4u31dmm2c4n9a",
+      "name": "Octavio",
+      "avatarIndex": 0,
+      "background": "Antiguo soldado imperial. De complexión fuerte y corpulenta."
+    },
+    {
+      "id": "heqq5igi53ml9byovs",
+      "name": "Cayo",
+      "avatarIndex": 1,
+      "background": "Antiguo soldado imperial. De complexion delgada."
+    }
+  ],
+  "players_online": [],
+  "currentScene": null,
+  "pendingScene": {
+    "description": "Roma, año III A.C.\n\nOs encontrais encerrados en una celda del palacio imperial, a las afueras de Cartago. Se os ha acusado de ser traidores al Cesar.\nLa celda es pequeña, solo tiene una ventana con barrotes y una manta en el suelo.\nUna reja hace las veces de puerta.\n\nHay un ladrillo un poco suelto en la pared."
+  },
+  "round": 1,
+  "isRoundActive": false,
+  "submittedActions": [],
+  "messages": [],
+  "history": []
+}

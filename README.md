@@ -27,3 +27,24 @@ npm start
 - `src/server`: Backend source code.
 - `dist/`: Compiled output (gitignored).
 - `public/`: Static assets.
+
+## Deployment
+
+### Subfolder Configuration
+If you deploy this application in a subfolder (e.g., `https://example.com/my-game/`), set the `BASE_PATH` environment variable during build and runtime.
+
+**Linux/Mac:**
+```bash
+export BASE_PATH=/my-game/
+npm run build
+npm start
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:BASE_PATH="/my-game/"
+npm run build
+npm start
+```
+
+This ensures assets and socket connections use the correct path prefix. Ensure your reverse proxy is configured to strip the path prefix when forwarding requests to the Node.js server (e.g. `proxy_pass http://localhost:4001/;`).

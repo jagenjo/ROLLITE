@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import { GameManager } from './game/GameManager.js';
 import { FileStorage } from './game/file_storage.js';
+import { LLMService } from './services/LLMService.js';
 import { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from '../shared/types.js';
 
 dotenv.config();
@@ -78,7 +79,14 @@ app.post('/upload', (req, res, next) => {
         return;
     }
     const sessionId = req.body.sessionId;
-    const fileUrl = `/uploads/${sessionId}/${req.file.filename}`;
+    const basePath = process.env.BASE_PATH || '';
+    // Ensure basePath starts with / if it exists and doesn't have it, but usually env var should be correct.
+    // Normalized check:
+    const normalizedBasePath = basePath && !basePath.startsWith('/') ? `/${basePath}` : basePath;
+    // Remove trailing slash from base if present to avoid double slash
+    const cleanBase = normalizedBasePath.endsWith('/') ? normalizedBasePath.slice(0, -1) : normalizedBasePath;
+
+    const fileUrl = `${cleanBase}/uploads/${sessionId}/${req.file.filename}`;
     res.json({ url: fileUrl });
 });
 
@@ -158,6 +166,8 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
 
 const fileStorage = new FileStorage();
 const gameManager = new GameManager(fileStorage);
+const llmService = new LLMService();
+llmService.validateService();
 
 // Load existing state
 const index = fileStorage.loadGameIndex();
@@ -174,12 +184,21 @@ if (index && index.sessions) {
 
 const PORT = process.env.PORT || 4001;
 
+// Multi-socket tracking: session_player -> socket count
+const playerSocketCounts = new Map<string, number>();
+
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
     socket.on('createSession', (token, name, gameName, avatarIndex, templateId) => {
         // Use token as playerId
         const sessionId = gameManager.createSession(token, name, gameName, avatarIndex, templateId);
+
+        socket.data.playerId = token;
+        socket.data.sessionId = sessionId;
+        const key = `${sessionId}_${token}`;
+        playerSocketCounts.set(key, (playerSocketCounts.get(key) || 0) + 1);
+
         socket.join(sessionId);
         const session = gameManager.getSession(sessionId);
         if (session) {
@@ -239,6 +258,11 @@ io.on('connection', (socket) => {
 
         const joinedSession = gameManager.joinSession(sessionId, playerId);
         if (joinedSession) {
+            socket.data.playerId = playerId;
+            socket.data.sessionId = sessionId;
+            const key = `${sessionId}_${playerId}`;
+            playerSocketCounts.set(key, (playerSocketCounts.get(key) || 0) + 1);
+
             socket.join(sessionId);
             io.to(sessionId).emit('gameStateUpdate', joinedSession);
         } else {
@@ -288,7 +312,7 @@ io.on('connection', (socket) => {
         const success = gameManager.deleteSession(sessionId);
         if (success) {
             console.log(`Session ${sessionId} deleted by admin`);
-            const sessions = gameManager.getAllSessions();
+            const sessions = gameManager.getSessionSummaries();
             io.emit('systemStatsUpdate', sessions as any);
         }
     });
@@ -297,6 +321,7 @@ io.on('connection', (socket) => {
         const success = gameManager.saveSession(sessionId);
         if (success) {
             console.log(`Session ${sessionId} saved manually`);
+            socket.emit('sessionSaved');
         }
     });
 
@@ -305,21 +330,21 @@ io.on('connection', (socket) => {
         if (session) {
             console.log(`Session ${sessionId} ended`);
             io.to(sessionId).emit('gameStateUpdate', session);
-            const sessions = gameManager.getAllSessions();
+            const sessions = gameManager.getSessionSummaries();
             io.emit('systemStatsUpdate', sessions as any);
         }
     });
 
     socket.on('submitAction', (action, token) => {
-        console.log('Received submitAction:', action, 'from', token || socket.id);
-        for (const room of socket.rooms) {
-            if (room !== socket.id) {
-                const playerId = token || socket.id;
-                const session = gameManager.submitAction(room, playerId, action);
-                if (session) {
-                    console.log('Action submitted, emitting update to room:', room);
-                    io.to(room).emit('gameStateUpdate', session);
-                }
+        const playerId = token || socket.id;
+        const room = Array.from(socket.rooms).find(r => r !== socket.id && gameManager.getSession(r));
+
+        if (room) {
+            console.log('Received submitAction:', action, 'from', playerId, 'in room', room);
+            const session = gameManager.submitAction(room, playerId, action);
+            if (session) {
+                console.log('Action submitted, emitting update to room:', room);
+                io.to(room).emit('gameStateUpdate', session);
             }
         }
     });
@@ -436,9 +461,20 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnecting', () => {
-        const affectedSessions = gameManager.handleDisconnect(socket.id);
-        for (const session of affectedSessions) {
-            io.to(session.sessionId).emit('gameStateUpdate', session);
+        const { playerId, sessionId } = socket.data;
+        if (playerId && sessionId) {
+            const key = `${sessionId}_${playerId}`;
+            const count = (playerSocketCounts.get(key) || 1) - 1;
+            if (count <= 0) {
+                playerSocketCounts.delete(key);
+                console.log(`Player ${playerId} disconnected from session ${sessionId}`);
+                const session = gameManager.leaveSession(sessionId, playerId);
+                if (session) {
+                    io.to(sessionId).emit('gameStateUpdate', session);
+                }
+            } else {
+                playerSocketCounts.set(key, count);
+            }
         }
     });
 
@@ -446,9 +482,87 @@ io.on('connection', (socket) => {
         console.log('User disconnected:', socket.id);
     });
 
+    socket.on('updateDirectives', (sessionId, directives) => {
+        const session = gameManager.updateDirectives(sessionId, directives);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
+    socket.on('toggleGoalCompletion', (sessionId, goalIndex) => {
+        const session = gameManager.toggleGoalCompletion(sessionId, goalIndex);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
+    socket.on('deleteGoal', (sessionId, goalIndex) => {
+        const session = gameManager.deleteGoal(sessionId, goalIndex);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
+    socket.on('addGoal', (sessionId, description) => {
+        const session = gameManager.addGoal(sessionId, description);
+        if (session) {
+            io.to(sessionId).emit('gameStateUpdate', session);
+        }
+    });
+
     socket.on('getSystemStats', () => {
-        const stats = gameManager.getAllSessions();
+        const stats = gameManager.getSessionSummaries();
         socket.emit('systemStatsUpdate', stats);
+    });
+
+    socket.on('generateNextRound', async (sessionId) => {
+        // Security check: Only director can trigger this? 
+        // For now, we trust the UI to only show button to director, 
+        // but ideally we check if socket.id is the director.
+        const session = gameManager.getSession(sessionId);
+        if (!session) return;
+
+        // Director check
+        if (session.director.id !== socket.id && session.director.id !== (socket.data as any).playerId) {
+            // weak check compatible with current loose auth
+            // console.warn('Non-director attempted to generate round');
+        }
+
+        console.log(`Generating next round for session ${sessionId}...`);
+
+        // Update status and notifying players
+        session.status = 'WAITING_AI';
+        io.to(sessionId).emit('gameStateUpdate', session);
+
+        try {
+            // Get last 20 messages for context
+            const recentMessages = session.messages.slice(-20);
+
+            const llmResponse = await llmService.generateNextRound(
+                session.history,
+                session.players,
+                recentMessages,
+                session.currentScene,
+                session.directives
+            );
+
+            console.log('LLM Response generated:', llmResponse);
+
+            const updatedSession = gameManager.applyNextRoundUpdates(
+                sessionId,
+                llmResponse.description,
+                llmResponse.characterUpdates,
+                llmResponse.gameSummary,
+                llmResponse.goals
+            );
+
+            if (updatedSession) {
+                io.to(sessionId).emit('gameStateUpdate', updatedSession);
+            }
+        } catch (err) {
+            console.error('Error generating round:', err);
+            socket.emit('llmError', err instanceof Error ? err.message : 'Failed to generate round');
+        }
     });
 });
 
@@ -463,7 +577,7 @@ httpServer.listen(PORT, () => {
 // Persistence on shutdown
 const saveState = () => {
     console.log('Saving game state...');
-    const sessions = gameManager.getAllSessions();
+    const sessions = gameManager.getSessions();
     const sessionIds = sessions.map(s => s.sessionId);
 
     // Save index

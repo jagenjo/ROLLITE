@@ -1,6 +1,8 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Scene, Message, Player } from '../../shared/types.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { marked } from 'marked';
+import type { Scene, Message, Player, Goal } from '../../shared/types.js';
 import './player-card';
 import './avatar-selector';
 import './character-sheet';
@@ -19,12 +21,22 @@ export class DirectorDashboard extends LitElement {
   @property({ type: Object }) currentScene: Scene | null = null;
   @property({ type: Object }) pendingScene: Scene | null = null;
   @property({ type: Array }) playersOnline: Player[] = [];
+  @property({ type: Array }) submittedActions: string[] = [];
+  @property({ type: String }) status: string = 'INACTIVE';
+  @property({ type: Array }) goals: Goal[] = [];
+  @property({ type: String }) directives: string = '';
+  @property({ type: Boolean }) isGenerating = false;
 
   @state() private _newPlayerName = '';
   @state() private _newPlayerAvatar = 0;
   @state() private _newPlayerBadges = '';
   @state() private _showPlayerManagement = false;
   @state() private _showAvatarModal = false; // For new player creation only
+  @state() private _isEditingDirectives = false;
+  @state() private _localDirectives = '';
+
+  @state() private _showGoalInput = false;
+  @state() private _newGoalDescription = '';
 
   @state() private _selectedPlayerId: string | null = null; // For character sheet
 
@@ -88,10 +100,182 @@ export class DirectorDashboard extends LitElement {
     `;
   }
 
+  private _renderDirectives() {
+    return html`
+      <div class="panel" style="">
+        <h3 style="margin: 0 0 1rem 0; color: #8b5cf6; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            AI Directives
+          </div>
+          <button 
+            @click="${() => {
+        this._isEditingDirectives = !this._isEditingDirectives;
+        if (this._isEditingDirectives) this._localDirectives = this.directives;
+      }}" 
+            style="background: transparent; color: #8b5cf6; font-size: 0.75rem; padding: 0.25rem 0.5rem; text-decoration: underline;"
+          >
+            ${this._isEditingDirectives ? 'Cancel' : 'Edit'}
+          </button>
+        </h3>
+        
+        ${this._isEditingDirectives ? html`
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <textarea
+              style="width: 100%; min-height: 120px; background: #111827; color: white; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.75rem; font-family: inherit; font-size: 0.9rem; resize: vertical;"
+              .value="${this._localDirectives}"
+              @input="${(e: Event) => this._localDirectives = (e.target as HTMLTextAreaElement).value}"
+              placeholder="e.g. Always mention the spooky atmosphere, handle combat lethally, etc."
+            ></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+              <button @click="${this._saveDirectives}" style="background-color: #8b5cf6; font-size: 0.8rem; padding: 0.4rem 1rem;">Update Directives</button>
+            </div>
+          </div>
+        ` : html`
+          <div style="font-size: 0.9rem; color: #9ca3af; line-height: 1.5; font-style: italic; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 0.25rem;">
+            ${this.directives || 'No special directives set. The AI will follow standard DM practices.'}
+          </div>
+        `}
+        <p style="font-size: 0.7rem; color: #6b7280; margin-top: 0.25rem;">
+          Directives are passed to the AI to guide the narrative and tone of the game.
+        </p>
+
+        <div style="margin-top: 1.5rem; border-top: 1px solid #374151; padding-top: 1rem; display: flex; justify-content: center;">
+             <button 
+                @click="${this._generateNextRound}" 
+                ?disabled="${this.isGenerating || this.isEnded}"
+                class="${this.isGenerating ? 'generating' : ''}"
+                style="width: 100%; padding: 0.75rem; font-size: 1rem; background-color: #8b5cf6; display: flex; align-items: center; justify-content: center; gap: 0.5rem;"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                ${this.isGenerating ? 'AI is Thinking...' : 'Generate AI Round'}
+            </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private _generateNextRound() {
+    this.dispatchEvent(new CustomEvent('generate-next-round', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _saveDirectives() {
+    this.dispatchEvent(new CustomEvent('update-directives', {
+      detail: { directives: this._localDirectives },
+      bubbles: true,
+      composed: true
+    }));
+    this._isEditingDirectives = false;
+  }
+  private _renderGoals() {
+    if (!this.goals) return null;
+
+    return html`
+      <div class="panel" style="border-left: 4px solid #3b82f6;">
+        <h3 style="margin: 0 0 1rem 0; color: #3b82f6; display: flex; align-items: center; gap: 0.5rem;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Goals
+        </h3>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          ${this.goals.map((goal, index) => html`
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem; background: #111827; padding: 0.75rem; border-radius: 0.25rem; border: 1px solid ${goal.isCompleted ? '#059669' : '#374151'};">
+              <div 
+                style="margin-top: 0.125rem; color: ${goal.isCompleted ? '#10b981' : '#9ca3af'}; cursor: pointer;"
+                @click="${() => this._toggleGoal(index)}"
+                title="${goal.isCompleted ? 'Mark as incomplete' : 'Mark as completed'}"
+              >
+                ${goal.isCompleted ? html`
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                ` : html`
+                  <div style="width: 16px; height: 16px; border: 2px solid currentColor; border-radius: 50%;"></div>
+                `}
+              </div>
+              <div style="flex: 1; font-size: 0.9rem; line-height: 1.4; color: ${goal.isCompleted ? '#9ca3af' : '#e5e7eb'}; text-decoration: ${goal.isCompleted ? 'line-through' : 'none'};">
+                ${goal.description}
+              </div>
+              <button 
+                @click="${() => this._deleteGoal(index)}"
+                style="background: transparent; color: #ef4444; padding: 0.2rem; display: flex; align-items: center; justify-content: center; opacity: 0.6;"
+                title="Delete goal"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          `)}
+        </div>
+        
+        ${this._showGoalInput ? html`
+          <div style="margin-top: 0.5rem; background: #111827; padding: 0.75rem; border-radius: 0.25rem; border: 1px dashed #3b82f6;">
+            <input 
+              type="text" 
+              class="card-input" 
+              placeholder="New goal description..." 
+              .value="${this._newGoalDescription}"
+              @input="${(e: Event) => this._newGoalDescription = (e.target as HTMLInputElement).value}"
+              @keydown="${(e: KeyboardEvent) => e.key === 'Enter' && this._addGoal()}"
+            />
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
+              <button @click="${() => { this._showGoalInput = false; this._newGoalDescription = ''; }}" style="background-color: #4b5563; font-size: 0.75rem; padding: 0.25rem 0.75rem;">Cancel</button>
+              <button @click="${this._addGoal}" style="background-color: #3b82f6; font-size: 0.75rem; padding: 0.25rem 0.75rem;">Add Goal</button>
+            </div>
+          </div>
+        ` : html`
+          <button class="new_player" @click="${() => this._showGoalInput = true}" style="border-color: #3b82f6; color: #3b82f6;">+ Add Goal</button>
+        `}
+        <p style="font-size: 0.7rem; color: #6b7280; margin-top: 0.25rem;">
+          Goals guide the AI though the progress of the story
+        </p>
+
+      </div>
+    `;
+  }
+
+  private _addGoal() {
+    if (!this._newGoalDescription.trim()) return;
+    this.dispatchEvent(new CustomEvent('add-goal', {
+      detail: { description: this._newGoalDescription },
+      bubbles: true,
+      composed: true
+    }));
+    this._newGoalDescription = '';
+    this._showGoalInput = false;
+  }
+
+  private _toggleGoal(index: number) {
+    this.dispatchEvent(new CustomEvent('toggle-goal', {
+      detail: { index },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _deleteGoal(index: number) {
+    if (confirm('Are you sure you want to delete this goal?')) {
+      this.dispatchEvent(new CustomEvent('delete-goal', {
+        detail: { index },
+        bubbles: true,
+        composed: true
+      }));
+    }
+  }
+
   static styles = css`
     :host {
       display: block;
-      padding: 1rem;
+      padding-left: 1rem;
       color: white;
     }
 
@@ -134,9 +318,11 @@ export class DirectorDashboard extends LitElement {
     }
 
     .new_player {
-        background-color: #10b981;
-        width: 100%;
-        margin-top: 0.5rem;
+      color: #10b981;
+      border: 1px dashed #10b981;
+      background: transparent;
+      width: 100%;
+      margin-top: 0.5rem;
     }
     .new_player:hover {
         background-color: #059669;
@@ -203,6 +389,16 @@ export class DirectorDashboard extends LitElement {
     ::-webkit-scrollbar-thumb:hover {
       background: #6b7280;
     }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    
+    .generating {
+      animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      cursor: wait;
+    }
   `;
 
   private _createPlayer() {
@@ -267,12 +463,14 @@ export class DirectorDashboard extends LitElement {
 
     return html`
       <div class="panel">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h2>Characters</h2>
-            <div style="display: flex; align-items: center; gap: 1rem;">
+        <h3 style="margin: 0; color: #3b82f6;">Director Dashboard</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-top: 1px solid #374151; padding-top: 0.5rem;">
+            <div style="background: #374151; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; color: ${this.status === 'WAITING_AI' ? '#fbbf24' : this.status === 'ROUND_ACTIVE' ? '#10b981' : '#9ca3af'}; border: 1px solid currentColor;">
+                STATUS: ${this.status}
             </div>
         </div>
-
+      </div>
+      <div class="panel">
             <div class="player-list">
                 ${this.players.filter(p => p.id !== this.directorId).map(p => {
       const avatarIdx = p.avatarIndex || 0;
@@ -280,74 +478,91 @@ export class DirectorDashboard extends LitElement {
       const actionMsg = this.messages.find(m => m.isAction && m.senderId === p.id && m.round === actionsRound);
 
       return html`
-                      <player-card 
-                        .name="${p.name}" 
-                        .avatarIndex="${avatarIdx}" 
-                        .online="${isOnline}"
-                        style="cursor: pointer;"
-                        @click="${() => this._openCharacterSheet(p.id)}"
-                      >
-                            <div 
-                                slot="avatar"
-                                class="avatar-container"
-                                style="position: relative;"
-                            >
-                                <img 
-                                    src="/characters.jpg" 
-                                    class="avatar-image" 
-                                    style="transform: translate(-${(avatarIdx % 8) * 48}px, -${Math.floor(avatarIdx / 8) * 48}px); width: 384px;"
-                                >
-                            </div>
-
-                            <div slot="status">
-                                <div 
-                                    class="status-text" 
-                                    style="font-size: 0.8rem; margin-bottom: 0.25rem;"
-                                >
-                                    ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || 'No status')}
-                                </div>
-                            </div>
-
-                                  <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
-                                      <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
-                                          ${(this.pendingScene?.playerBadges?.[p.id] || this.currentScene?.playerBadges?.[p.id] || []).map((b: any) => {
+                      <div style="display: flex; flex-direction: column; gap: 0rem">
+                        <player-card 
+                          .name="${p.name}" 
+                          .avatarIndex="${avatarIdx}" 
+                          .online="${isOnline}"
+                          style="cursor: pointer;"
+                          @click="${() => this._openCharacterSheet(p.id)}"
+                        >
+                              <div slot="name-extras">
+                                  ${this.submittedActions.includes(p.id) ? html`<span style="color: #10b981; font-weight: bold;" title="Action Submitted">✓</span>` : ''}
+                              </div>
+                              <div 
+                                  slot="avatar"
+                                  class="avatar-container"
+                                  style="position: relative;"
+                              >
+                                  <img 
+                                      src="/characters.jpg" 
+                                      class="avatar-image" 
+                                      style="transform: translate(-${(avatarIdx % 8) * 48}px, -${Math.floor(avatarIdx / 8) * 48}px); width: 384px;"
+                                  >
+                              </div>
+  
+                              <div slot="status">
+                                  <div 
+                                      class="status-text" 
+                                      style="font-size: 0.8rem; margin-bottom: 0.25rem;"
+                                  >
+                                      ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || '')}
+                                  </div>
+                              </div>
+  
+                                    <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
+                                        <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+                                            ${(this.pendingScene?.playerBadges?.[p.id] || this.currentScene?.playerBadges?.[p.id] || []).map((b: any) => {
         const badgeName = typeof b === 'string' ? b : b.name;
         const isHidden = typeof b === 'string' ? false : b.hidden;
         return html`
-                                                  <span class="badge ${isHidden ? 'hidden' : ''}" title="${isHidden ? 'Hidden Badge' : ''}">
-                                                      ${badgeName}
-                                                  </span>
-                                              `;
+                                                    <span class="badge ${isHidden ? 'hidden' : ''}" title="${isHidden ? 'Hidden Badge' : ''}">
+                                                        ${badgeName}
+                                                    </span>
+                                                `;
       })}
-                                      </div>
-
-                                  ${actionMsg ? html`
-                                      <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6; margin-top: 0.25rem;">
-                                        ${actionMsg.content}
-                                      </div>
-                                  ` : ''}
-                              </div>
-                              <div slot="actions" @click="${(e: Event) => e.stopPropagation()}">
-                                  ${this._editingPrivateMsgId === p.id ? this._renderPrivateMsgForm() : html`
-                                      <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                          ${this.pendingScene?.privateMessages?.[p.id] ? html`
-                                              <div style="font-size: 0.75rem; color: #a78bfa; font-style: italic; margin-right: 0.5rem; max-width: 200px; text-align: right;">
-                                                  Pending: "${this.pendingScene?.privateMessages?.[p.id]}"
-                                              </div>
-                                          ` : ''}
-                                          <button 
-                                              @click="${() => this._startEditingMsg(p.id)}" 
-                                              style="background-color: ${this.pendingScene?.privateMessages?.[p.id] ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
-                                              title="${this.pendingScene?.privateMessages?.[p.id] ? 'Edit Private Message' : 'Send Private Message'}"
-                                          >
-                                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                                              </svg>
-                                          </button>
-                                      </div>
-                                  `}
-                              </div>
-                          </player-card>
+                                        </div>
+  
+                                    ${actionMsg ? html`
+                                        <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6; margin-top: 0.25rem;">
+                                          ${actionMsg.content}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div slot="actions" @click="${(e: Event) => e.stopPropagation()}">
+                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                        <button 
+                                            @click="${() => this._startEditingMsg(p.id)}" 
+                                            style="background-color: ${this.pendingScene?.privateMessages?.[p.id] ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
+                                            title="${this.pendingScene?.privateMessages?.[p.id] ? 'Edit Private Message' : 'Send Private Message'}"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </player-card>
+                            ${this._editingPrivateMsgId === p.id ? html`
+                                <div style="margin-top: -0.5rem; background: #111827; padding: 0.75rem; border-radius: 0 0 0.5rem 0.5rem; border: 1px solid #8b5cf6; border-top: none; position: relative; z-index: 2; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                                    <textarea
+                                        style="width: 100%; min-height: 80px; margin-bottom: 0.5rem; resize: vertical; background: #1f2937; color: white; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.5rem; font-family: inherit; font-size: 0.875rem;"
+                                        .value="${this._tempPrivateMsg}"
+                                        @input="${(e: Event) => this._tempPrivateMsg = (e.target as HTMLTextAreaElement).value}"
+                                        placeholder="Write a private message for ${p.name}..."
+                                        @click="${(e: Event) => e.stopPropagation()}"
+                                    ></textarea>
+                                    <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                        <button @click="${(e: Event) => { e.stopPropagation(); this._cancelPrivateMsg(); }}" style="background-color: #4b5563; font-size: 0.75rem; padding: 0.4rem 0.8rem;">Cancel</button>
+                                        <button @click="${(e: Event) => { e.stopPropagation(); this._savePrivateMsg(); }}" style="background-color: #8b5cf6; font-size: 0.75rem; padding: 0.4rem 0.8rem;">Save Secret</button>
+                                    </div>
+                                </div>
+                            ` : (this.pendingScene?.privateMessages?.[p.id] ? html`
+                                <div style="font-size: 0.75rem; color: #a78bfa; font-style: italic; background: rgba(139, 92, 246, 0.1); padding: 0.4rem 0.75rem; border-radius: 0 0 0.5rem 0.5rem; margin-top: -0.5rem; border: 1px solid rgba(139, 92, 246, 0.2); border-top: none; position: relative; z-index: 1;">
+                                    <span style="font-weight: bold; opacity: 0.7;">Pending Secret:</span> "${this.pendingScene.privateMessages[p.id]}"
+                                </div>
+                            ` : '')}
+                        </div>
                   `})}
        
         ${this._showPlayerManagement ? html`
@@ -387,10 +602,13 @@ export class DirectorDashboard extends LitElement {
             </div>
         ` : ''} <!--show player management-->
         
-        ${!this._showPlayerManagement ? html`<button class="new_player" @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">+</button>` : ''}
+        ${!this._showPlayerManagement ? html`<button class="new_player" @click="${() => this._showPlayerManagement = !this._showPlayerManagement}">+ Add Character</button>` : ''}
         </div>        
-
       </div>
+
+      ${this._renderGoals()}
+
+      ${this._renderDirectives()}
       
       <!-- Character Sheet Modal -->
       <character-sheet
@@ -405,13 +623,9 @@ export class DirectorDashboard extends LitElement {
       
       <!-- Avatar Selection Modal (Global) -->
       ${this._isAvatarModalOpen ? html`
-        <avatar-selector
-            .selectedAvatarIndex="${this._newPlayerAvatar}"
-            @close="${() => this._showAvatarModal = false}"
-            @avatar-selected="${this._onAvatarSelected}"
-        ></avatar-selector>
+        <avatar-selector .isOpen="${this._isAvatarModalOpen}" @selected="${this._onAvatarSelected}" @close="${() => this._showAvatarModal = false}"></avatar-selector>
       ` : ''}
-      
+     
     `;
   }
 }

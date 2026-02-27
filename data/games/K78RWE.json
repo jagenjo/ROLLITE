@@ -1,0 +1,31 @@
+{
+  "sessionId": "K78RWE",
+  "gameName": "Test Game",
+  "director": {
+    "id": "DirectorUser",
+    "name": "DirectorName",
+    "avatarIndex": 0
+  },
+  "players": [
+    {
+      "id": "DirectorUser",
+      "name": "DirectorName",
+      "avatarIndex": 0
+    }
+  ],
+  "players_online": [
+    {
+      "id": "DirectorUser",
+      "name": "DirectorName",
+      "avatarIndex": 0
+    }
+  ],
+  "currentScene": null,
+  "pendingScene": null,
+  "round": 1,
+  "isRoundActive": false,
+  "submittedActions": [],
+  "messages": [],
+  "history": [],
+  "status": "INACTIVE"
+}

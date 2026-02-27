@@ -27,6 +27,10 @@ export class PlayerCard extends LitElement {
       box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     }
 
+    .player-card:hover {
+      background: #465163ff;
+    }
+
     .player-card.is-me {
       border: 1px solid #f6ca3bff;
       box-shadow: 0 0 0 1px #f6ca3bff;
@@ -97,7 +101,7 @@ export class PlayerCard extends LitElement {
 
     .player-name {
       font-weight: bold;
-      font-size: 0.95rem;
+      font-size: 1.1rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;

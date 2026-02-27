@@ -129,7 +129,7 @@ export class PlayerDashboard extends LitElement {
             <textarea
               .value="${this._action}"
               @input="${(e: Event) => this._action = (e.target as HTMLTextAreaElement).value}"
-              placeholder="What do you want to do?"
+              placeholder="What will be your next action?"
             ></textarea>
             <button @click="${this._submitAction}">Submit Action</button>
           ` : html`

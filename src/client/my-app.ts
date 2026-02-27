@@ -11,6 +11,8 @@ import './components/admin-dashboard';
 import './components/header-profile';
 import './components/exit-button';
 import './components/game-actions';
+import './components/notification-manager.js';
+import { showNotification } from './components/notification-manager.js';
 
 const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:4001';
 
@@ -26,10 +28,13 @@ export class MyApp extends LitElement {
   @state() private _templates: { id: string, name: string }[] = [];
   @state() private _selectedTemplateId = '';
   @state() private _showLoadTemplateModal = false;
+  @state() private _llmError = '';
+  @state() private _isGenerating = false;
 
   @state() private _isInLobby = true;
   @state() private _viewingRound = 1;
   @state() private _userToken = '';
+  @state() private _sessionId = '';
 
   // Admin State
   @state() private _isAdmin = false;
@@ -287,7 +292,12 @@ export class MyApp extends LitElement {
   }
 
   private _initSocket() {
-    this._socket = io(SOCKET_URL);
+    const baseUrl = import.meta.env.BASE_URL;
+    const socketPath = (baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '')) + '/socket.io';
+
+    this._socket = io(SOCKET_URL, {
+      path: socketPath
+    });
 
     this._socket.on('connect', () => {
       console.log('Connected to server');
@@ -362,6 +372,12 @@ export class MyApp extends LitElement {
       }
     });
 
+    this._socket.on('llmError', (message: string) => {
+      console.error('LLM Error:', message);
+      this._llmError = message;
+      this._isGenerating = false; // Reset generation state on LLM error
+    });
+
     this._socket.on('systemStatsUpdate', (stats: any[]) => {
       this._systemStats = stats;
     });
@@ -369,9 +385,15 @@ export class MyApp extends LitElement {
     this._socket.on('error', (message: string) => {
       console.error('Socket Error:', message);
       this._errorMessage = message;
-      // If we failed to join, ensure we stay in lobby and stop showing "Joining..."
-      this._isInLobby = true;
-      this._sessionId = '';
+      // ONLY reset to lobby if we haven't successfully joined a session yet
+      if (!this._gameState) {
+        this._isInLobby = true;
+        this._sessionId = '';
+      }
+    });
+
+    this._socket.on('sessionSaved', () => {
+      showNotification('Game saved successfully!', 'success');
     });
   }
 
@@ -468,8 +490,34 @@ export class MyApp extends LitElement {
     }
   }
 
+  private _handleGenerateNextRound() {
+    if (this._gameState?.sessionId) {
+      this._llmError = ''; // Clear previous error
+      this._isGenerating = true;
+      this._socket?.emit('generateNextRound', this._gameState.sessionId);
+    }
+  }
+
   private _handleViewRoundChange(e: CustomEvent) {
     this._viewingRound = e.detail.round;
+  }
+
+  private _handleToggleGoal(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('toggleGoalCompletion', this._gameState.sessionId, e.detail.index);
+    }
+  }
+
+  private _handleDeleteGoal(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('deleteGoal', this._gameState.sessionId, e.detail.index);
+    }
+  }
+
+  private _handleAddGoal(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('addGoal', this._gameState.sessionId, e.detail.description);
+    }
   }
 
   private _handleMessageSent(e: CustomEvent) {
@@ -499,6 +547,13 @@ export class MyApp extends LitElement {
   private _handleStartRound() {
     if (!this._gameState?.sessionId) return;
     this._socket?.emit('startRound', this._gameState.sessionId);
+  }
+
+  private _handleUpdateDirectives(e: CustomEvent) {
+    if (this._gameState?.sessionId && this._socket) {
+      this._socket.emit('updateDirectives', this._gameState.sessionId, e.detail.directives);
+      showNotification('Directives updated', 'success');
+    }
   }
 
   private _handleUpdatePlayerStatus(e: CustomEvent) {
@@ -631,6 +686,7 @@ export class MyApp extends LitElement {
                     .messages="${this._gameState?.messages || []}"
                     .players="${this._gameState?.players || []}"
                     .directorId="${this._gameState?.director.id}"
+                    .gameSummary="${this._gameState?.gameSummary || ''}"
                     .currentUserId="${'SPECTATOR'}"
                     ?canChat="${false}"
                     .isEnded="${!!this._gameState?.isEnded}"
@@ -744,11 +800,14 @@ export class MyApp extends LitElement {
             .isEnded="${!!this._gameState?.isEnded}"
             .isRoundActive="${this._gameState?.isRoundActive || false}"
             .sessionId="${this._gameState?.sessionId || ''}"
+            .llmError="${this._llmError}"
+            .gameSummary="${this._gameState?.gameSummary || ''}"
             @view-round-change="${this._handleViewRoundChange}"
             @update-scene="${this._handleUpdateScene}"
             @message-sent="${this._handleMessageSent}"
             @start-round="${this._handleStartRound}"
             @next-round="${this._handleNextRound}"
+            @generate-next-round="${this._handleGenerateNextRound}"
           ></scene-display>
           ${!isDirector ? html`
             <player-dashboard
@@ -776,9 +835,18 @@ export class MyApp extends LitElement {
               .sessionId="${this._gameState?.sessionId || ''}"
               .directorId="${this._gameState?.director.id || ''}"
               .isEnded="${!!this._gameState?.isEnded}"
+              .status="${this._gameState?.status || 'INACTIVE'}"
               .playersOnline="${this._gameState?.players_online || []}"
+              .submittedActions="${this._gameState?.submittedActions || []}"
+              .goals="${this._gameState?.goals || []}"
+              .directives="${this._gameState?.directives || ''}"
+              .isGenerating="${this._isGenerating}"
               @next-round="${this._handleNextRound}"
               @start-round="${this._handleStartRound}"
+              @update-directives="${this._handleUpdateDirectives}"
+              @toggle-goal="${this._handleToggleGoal}"
+              @delete-goal="${this._handleDeleteGoal}"
+              @add-goal="${this._handleAddGoal}"
               @create-player="${this._handleCreatePlayer}"
               @set-pending-private-message="${this._handleSetPendingPrivateMessage}"
               @add-badge="${this._handleAddBadge}"
@@ -787,6 +855,7 @@ export class MyApp extends LitElement {
               @update-player-avatar="${this._handleUpdatePlayerAvatar}"
               @update-player-background="${this._handleUpdatePlayerBackground}"
               @update-player-name="${this._handleUpdatePlayerName}"
+              @generate-next-round="${this._handleGenerateNextRound}"
             ></director-dashboard>
           ` : html`
             <players-list
@@ -797,6 +866,7 @@ export class MyApp extends LitElement {
               .currentScene="${this._gameState?.currentScene || null}"
               .pendingScene="${this._gameState?.pendingScene || null}"
               .sessionId="${this._gameState?.sessionId || ''}"
+              .submittedActions="${this._gameState?.submittedActions || []}"
               @add-badge="${this._handleAddBadge}"
               @remove-badge="${this._handleRemoveBadge}"
               @update-player-status="${this._handleUpdatePlayerStatus}"

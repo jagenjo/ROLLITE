@@ -22,6 +22,8 @@ export class SceneDisplay extends LitElement {
   @property({ type: Boolean }) canChat = false;
   @property({ type: Boolean }) isEnded = false;
   @property({ type: Boolean }) isRoundActive = false;
+  @property({ type: String }) llmError = '';
+  @property({ type: String }) gameSummary = '';
 
   @state() private _isEditing = false;
   @state() private _isDragging = false;
@@ -30,6 +32,7 @@ export class SceneDisplay extends LitElement {
   @state() private _chatInputValue = '';
   @state() private _showImageModal = false;
   @state() private _availableImages: string[] = [];
+  @state() private _showSummaryModal = false;
 
   static styles = css`
     :host {
@@ -46,6 +49,16 @@ export class SceneDisplay extends LitElement {
       display: flex;
       flex-direction: column;
       font-family: "Gentium Book Plus", serif;
+    }
+
+    /* Animation for loading */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .generating {
+      animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 
     .header {
@@ -197,7 +210,6 @@ export class SceneDisplay extends LitElement {
       padding: 0.5rem 0.75rem;
       max-width: 90%;
       word-wrap: break-word;
-      font-size: 0.95rem;
       display: flex;
       gap: 0.5rem;
       align-items: flex-start;
@@ -234,7 +246,6 @@ export class SceneDisplay extends LitElement {
     }
 
     .message-sender {
-      font-size: 0.75rem;
       margin-bottom: 0.25rem;
       font-weight: bold;
       color: #d1d5db;
@@ -411,6 +422,7 @@ export class SceneDisplay extends LitElement {
     this._isEditing = false;
   }
 
+
   private _updateScene() {
     this.dispatchEvent(new CustomEvent('update-scene', {
       detail: {
@@ -571,7 +583,7 @@ export class SceneDisplay extends LitElement {
   }
 
   updated(changedProperties: Map<string, any>) {
-    if (changedProperties.has('scene') || changedProperties.has('isDirector')) {
+    if (changedProperties.has('scene') || changedProperties.has('isDirector') || changedProperties.has('llmError')) {
       if (this.isDirector && this.viewingRound === this.currentRound) {
         if (!this.scene?.description && !this._isEditing) {
           this._startEditing();
@@ -608,12 +620,25 @@ export class SceneDisplay extends LitElement {
                     ` : html`
                          <button @click="${this._triggerNextRound}" style="background-color: #fbbf24; color: #1f2937; border: none; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Next Round</button>
                     `}
+                    <button 
+                        class="btn-primary" 
+                        style="background-color: #8b5cf6; font-size: 0.8rem; padding: 0.25rem 0.75rem;"
+                        @click="${() => this._showSummaryModal = true}"
+                    >
+                        Plot Summary
+                    </button>
                     ${!this._isEditing ? html`
                         <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
                     ` : ''}
                 ` : ''}
                 ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
             </div>
+            ${this.llmError ? html`
+              <div style="padding: 0.5rem 1rem; background-color: rgba(239, 68, 68, 0.1); border-bottom: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5; font-size: 0.875rem; display: flex; justify-content: space-between; align-items: center;">
+                <span><strong>LLM Error:</strong> ${this.llmError}</span>
+                <button @click="${() => this.llmError = ''}" style="background: none; border: none; padding: 0.25rem; font-size: 1rem; line-height: 1;">&times;</button>
+              </div>
+            ` : ''}
         </div>
 
         ${this._isEditing && this.viewingRound === this.currentRound ? html`
@@ -648,7 +673,7 @@ export class SceneDisplay extends LitElement {
             </div>
         ` : ''}
 
-        ${!this._isEditing ? html`
+        ${!this._isEditing || this.viewingRound < this.currentRound ? html`
 
             <div class="description">
             ${displayScene?.description
@@ -720,9 +745,9 @@ export class SceneDisplay extends LitElement {
                             .value="${this._chatInputValue}" 
                             @input="${this._handleChatInput}"
                             @keydown="${this._handleChatKeyDown}"
-                            placeholder="Type a message..."
+                            placeholder="..."
                         />
-                        <button @click="${this._sendChatMessage}">Send</button>
+                        <button @click="${this._sendChatMessage}">Speak</button>
                     </div>
                 ` : ''}
             </div>
@@ -752,6 +777,37 @@ export class SceneDisplay extends LitElement {
                 </div>
             </div>
         ` : ''}
+
+      <!-- Plot Summary Modal -->
+      ${this._showSummaryModal ? html`
+        <div 
+            style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100;"
+            @click="${() => this._showSummaryModal = false}"
+        >
+            <div 
+                style="background: #1f2937; padding: 2rem; border-radius: 0.5rem; width: 600px; max-width: 90vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); position: relative;"
+                @click="${(e: Event) => e.stopPropagation()}"
+            >
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem;">
+                    <h3 style="margin: 0; color: #8b5cf6;">Game Summary</h3>
+                    <button 
+                        @click="${() => this._showSummaryModal = false}"
+                        style="background: transparent; border: none; font-size: 1.5rem; line-height: 1; padding: 0; cursor: pointer;"
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <div class="summary-content" style="font-size: 0.95rem; line-height: 1.6; color: #e5e7eb;">
+                    ${this.gameSummary ? unsafeHTML(marked.parse(this.gameSummary) as string) : html`<p style="font-style: italic; opacity: 0.7;">No summary available yet. It will be generated after the next round.</p>`}
+                </div>
+
+                <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" @click="${() => this._showSummaryModal = false}">Close</button>
+                </div>
+            </div>
+        </div>
+      ` : ''}        
         
       </div>
     `;

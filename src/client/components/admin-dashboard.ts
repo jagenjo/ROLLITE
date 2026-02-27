@@ -84,6 +84,8 @@ export class AdminDashboard extends LitElement {
                               <th>Round</th>
                               <th>Players/Online</th>
                               <th>Status</th>
+                              <th>Created</th>
+                              <th>Last Activity</th>
                               <th>Actions</th>
                           </tr>
                       </thead>
@@ -99,6 +101,24 @@ export class AdminDashboard extends LitElement {
         ? html`<span style="color: #ef4444; font-weight: bold;">ENDED</span>`
         : html`<span style="color: #10b981; font-weight: bold;">ACTIVE</span>`
       }
+                                  </td>
+                                  <td>
+                                      <div style="font-size: 0.75rem; color: #9ca3af;">
+                                          ${new Date(session.createdAt).toLocaleDateString()}
+                                      </div>
+                                      <div style="font-size: 0.875rem;">
+                                          ${new Date(session.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </div>
+                                  </td>
+                                  <td>
+                                      ${session.lastRoundAt ? html`
+                                          <div style="font-size: 0.75rem; color: #9ca3af;">
+                                              ${new Date(session.lastRoundAt).toLocaleDateString()}
+                                          </div>
+                                          <div style="font-size: 0.875rem;">
+                                              ${new Date(session.lastRoundAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          </div>
+                                      ` : html`-`}
                                   </td>
                                   <td class="last-col">
                                       <button class="spectate-btn" @click="${() => this._spectate(session.sessionId)}">Spectate</button>

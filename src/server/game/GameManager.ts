@@ -39,6 +39,8 @@ export class GameManager {
                 initialState.history = []; // Optionally keep history or clear it? Clearing for fresh start.
                 initialState.isRoundActive = false; // Ensure starts inactive?
                 initialState.isEnded = false;
+                initialState.status = 'INACTIVE';
+                initialState.createdAt = Date.now();
 
                 // If template had pending scene, keep it. 
                 // If it had current scene, maybe move it to pending if we want to start fresh? 
@@ -59,7 +61,9 @@ export class GameManager {
                     isRoundActive: false,
                     submittedActions: [],
                     messages: [],
-                    history: []
+                    history: [],
+                    status: 'INACTIVE',
+                    createdAt: Date.now()
                 };
             }
         } else {
@@ -78,7 +82,9 @@ export class GameManager {
                 isRoundActive: false,
                 submittedActions: [],
                 messages: [],
-                history: []
+                history: [],
+                status: 'INACTIVE',
+                createdAt: Date.now()
             };
         }
 
@@ -155,15 +161,15 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        // Save as pending scene only. Director must "Start Round" to publish.
-        // Enhance: Preserve existing pending data if updating just description?
-        // For now, assuming standard flow.
-        if (!session.pendingScene) {
+        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
+
+        if (targetScene) {
+            targetScene.description = scene.description;
+        } else if (!session.isRoundActive) {
+            // If inactive and no pending scene, create one
             session.pendingScene = scene;
-        } else {
-            // Update description but keep existing pending data
-            session.pendingScene.description = scene.description;
         }
+
         return session;
     }
 
@@ -205,11 +211,15 @@ export class GameManager {
         if (sceneSource) {
             session.currentScene = sceneSource;
             session.isRoundActive = true;
+            session.status = 'ROUND_ACTIVE';
             session.pendingScene = null;
         } else if (!session.isRoundActive && session.currentScene) {
             // If no pending scene but we want to start (maybe re-start?), just set active
             session.isRoundActive = true;
+            session.status = 'ROUND_ACTIVE';
         }
+
+        session.lastRoundAt = Date.now();
 
         return session;
     }
@@ -219,6 +229,58 @@ export class GameManager {
         if (!session) return null;
 
         session.messages.push(message);
+        return session;
+    }
+
+    applyNextRoundUpdates(sessionId: string, description: string, characterUpdates: { id: string, statusText?: string, badge?: { name: string, hidden: boolean }, privateMessage?: string }[], summary?: string, goals?: { description: string, isCompleted: boolean }[]): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        // Ensure pending scene exists
+        if (!session.pendingScene) {
+            session.pendingScene = { description: '' };
+        }
+
+        // 1. Update Description
+        if (description) {
+            session.pendingScene.description = description;
+        }
+
+        // 2. Update Summary
+        if (summary) {
+            session.gameSummary = summary;
+        }
+
+        // 2.5 Update Goals
+        if (goals) {
+            session.goals = goals;
+        }
+
+        // 3. Process Character Updates
+        for (const update of characterUpdates) {
+            // Status Text
+            if (update.statusText !== undefined) {
+                if (!session.pendingScene.playerStatuses) session.pendingScene.playerStatuses = {};
+                session.pendingScene.playerStatuses[update.id] = update.statusText;
+            }
+
+            // Private Message
+            if (update.privateMessage) {
+                if (!session.pendingScene.privateMessages) session.pendingScene.privateMessages = {};
+                session.pendingScene.privateMessages[update.id] = update.privateMessage;
+            }
+
+            // Badges
+            // Only adding badges (not removing for now, as LLM usually grants things)
+            if (update.badge) {
+                if (!session.pendingScene.playerBadges) session.pendingScene.playerBadges = {};
+                if (!session.pendingScene.playerBadges[update.id]) session.pendingScene.playerBadges[update.id] = [];
+                session.pendingScene.playerBadges[update.id].push(update.badge);
+            }
+        }
+
+        session.status = 'INACTIVE';
+        session.lastRoundAt = Date.now();
         return session;
     }
 
@@ -241,7 +303,7 @@ export class GameManager {
         // Check if player has already submitted
         if (session.submittedActions.includes(playerId)) {
             console.log('Player already submitted');
-            return session;
+            return null;
         }
 
         const player = session.players?.find(p => p.id === playerId);
@@ -266,18 +328,51 @@ export class GameManager {
         return session;
     }
 
-    handleDisconnect(socketId: string): GameState[] {
-        const affectedSessions: GameState[] = [];
-        for (const session of this.sessions.values()) {
-            const wasOnline = session.players_online?.some(p => p.id === socketId);
-            if (wasOnline) {
-                session.players_online = session.players_online?.filter(p => p.id !== socketId);
-                affectedSessions.push(session);
-            }
-        }
-        return affectedSessions;
+    leaveSession(sessionId: string, playerId: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        session.players_online = session.players_online?.filter(p => p.id !== playerId);
+        return session;
     }
 
+    updateDirectives(sessionId: string, directives: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        session.directives = directives;
+        return session;
+    }
+
+    toggleGoalCompletion(sessionId: string, goalIndex: number): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session || !session.goals || !session.goals[goalIndex]) return null;
+
+        session.goals[goalIndex].isCompleted = !session.goals[goalIndex].isCompleted;
+        return session;
+    }
+
+    deleteGoal(sessionId: string, goalIndex: number): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session || !session.goals || !session.goals[goalIndex]) return null;
+
+        session.goals.splice(goalIndex, 1);
+        return session;
+    }
+
+    addGoal(sessionId: string, description: string): GameState | null {
+        const session = this.sessions.get(sessionId);
+        if (!session) return null;
+
+        if (!session.goals) session.goals = [];
+        session.goals.push({ description, isCompleted: false });
+        return session;
+    }
+
+    handleDisconnect(socketId: string): GameState[] {
+        // This is now handled by the server tracking socket counts
+        return [];
+    }
 
     nextRound(sessionId: string): GameState | null {
         const session = this.sessions.get(sessionId);
@@ -312,12 +407,13 @@ export class GameManager {
         session.submittedActions = [];
         session.currentScene = null; // Clear scene description
         session.isRoundActive = false; // Wait for director to update scene
+        session.status = 'INACTIVE';
         // Optionally clear action messages or keep them? 
         // For now, we keep them as history.
         return session;
     }
 
-    getAllSessions(): any[] {
+    getSessionSummaries(): any[] {
         return Array.from(this.sessions.values()).map(s => ({
             sessionId: s.sessionId,
             gameName: s.gameName,
@@ -325,11 +421,21 @@ export class GameManager {
             playerCount: s?.players?.length || 0,
             onlineCount: s?.players_online?.length || 0,
             directorId: s?.director?.id,
-            isEnded: !!s.isEnded
+            isEnded: !!s.isEnded,
+            status: s.status || 'INACTIVE',
+            createdAt: s.createdAt,
+            lastRoundAt: s.lastRoundAt
         }));
     }
 
+    getSessions(): GameState[] {
+        return Array.from(this.sessions.values());
+    }
+
     restoreSession(session: GameState) {
+        if (!session.createdAt) {
+            session.createdAt = Date.now();
+        }
         this.sessions.set(session.sessionId, session);
         // Legacy checks removed
     }
@@ -361,6 +467,7 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (session) {
             session.isEnded = true;
+            session.status = 'ENDED'; // New: Set status to ended
             if (this.fileStorage) {
                 this.fileStorage.saveGame(sessionId, session);
             }
@@ -427,6 +534,7 @@ export class GameManager {
 
         return null;
     }
+
     updatePlayerStatus(sessionId: string, playerId: string, statusText: string): GameState | null {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
@@ -499,6 +607,7 @@ export class GameManager {
 
         return session;
     }
+
     saveAsTemplate(sessionId: string, templateName: string): boolean {
         const session = this.sessions.get(sessionId);
         if (!session) return false;
@@ -559,11 +668,15 @@ export class GameManager {
 
         session.currentScene = template.currentScene;
         session.pendingScene = template.pendingScene;
-        session.round = 1;
+        session.round = 1; // Reset round to 1
         session.isRoundActive = false;
+        session.status = 'INACTIVE'; // New: Set status to inactive
         session.submittedActions = [];
         session.history = []; // Reset history
         session.messages = []; // Reset messages to start fresh
+        session.gameSummary = template.gameSummary || "";
+        session.goals = template.goals || [];
+        session.directives = template.directives || "";
 
         // Reset Players:
         // Keep director, replace characters.

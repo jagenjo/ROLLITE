@@ -4,6 +4,10 @@ import { FileStorage } from '../game/file_storage.js';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function runTests() {
     console.log('Starting Game Flow Tests (using Real Persistence)...');

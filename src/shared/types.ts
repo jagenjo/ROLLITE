@@ -3,6 +3,11 @@ export interface Badge {
     hidden: boolean;
 }
 
+export interface Goal {
+    description: string;
+    isCompleted: boolean;
+}
+
 export interface Player {
     id: string;
     name: string;
@@ -38,11 +43,17 @@ export interface GameState {
     currentScene: Scene | null;
     pendingScene?: Scene | null;
     round: number;
+    gameSummary?: string;
     isRoundActive: boolean;
     submittedActions: string[];
     messages: Message[];
     history: { round: number; scene: Scene }[];
     isEnded?: boolean;
+    status: 'INACTIVE' | 'ROUND_ACTIVE' | 'WAITING_AI' | 'ENDED';
+    createdAt: number;
+    lastRoundAt?: number;
+    goals?: Goal[];
+    directives?: string;
 }
 
 export interface SessionSummary {
@@ -53,6 +64,9 @@ export interface SessionSummary {
     onlineCount: number;
     directorId?: string;
     isEnded?: boolean;
+    status: string;
+    createdAt: number;
+    lastRoundAt?: number;
 }
 
 export interface ServerToClientEvents {
@@ -62,9 +76,11 @@ export interface ServerToClientEvents {
     newScene: (scene: Scene) => void;
     newMessage: (message: Message) => void;
     error: (message: string) => void;
+    llmError: (message: string) => void;
     systemStatsUpdate: (stats: SessionSummary[]) => void;
     templatesList: (templates: { id: string, name: string }[]) => void;
     templateSaved: (success: boolean) => void;
+    sessionSaved: () => void;
 }
 
 export interface ClientToServerEvents {
@@ -91,6 +107,11 @@ export interface ClientToServerEvents {
     updatePlayerName: (playerId: string, name: string) => void;
     updatePlayerBackground: (playerId: string, background: string) => void;
     setPendingPrivateMessage: (playerId: string, message: string) => void;
+    generateNextRound: (sessionId: string) => void;
+    updateDirectives: (sessionId: string, directives: string) => void;
+    toggleGoalCompletion: (sessionId: string, goalIndex: number) => void;
+    deleteGoal: (sessionId: string, goalIndex: number) => void;
+    addGoal: (sessionId: string, description: string) => void;
 }
 
 export interface InterServerEvents {
@@ -100,4 +121,5 @@ export interface InterServerEvents {
 export interface SocketData {
     name: string;
     sessionId: string;
+    playerId: string;
 }
