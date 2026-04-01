@@ -31,10 +31,10 @@ async function runTests() {
     assert.ok(session, 'Session should exist');
 
     const result = await llmService.generateNextRound(
-        session!.history,
+        session!.rounds,
         session!.players,
         [], // no messages
-        session!.currentScene
+        session!.currentRound
     );
 
     assert.ok(result.description, 'Should return a description');
@@ -61,11 +61,12 @@ async function runTests() {
     );
 
     assert.ok(updatedSession, 'Should return updated session');
-    assert.strictEqual(updatedSession!.pendingScene?.description, mockUpdates.description);
-    assert.strictEqual(updatedSession!.pendingScene?.playerStatuses?.[playerId], 'Scared');
-    assert.strictEqual(updatedSession!.pendingScene?.privateMessages?.[playerId], 'You hear a whisper.');
-    assert.strictEqual(updatedSession!.pendingScene?.playerBadges?.[playerId].length, 1);
-    assert.strictEqual(updatedSession!.pendingScene?.playerBadges?.[playerId][0].name, 'Survivor');
+    const player_index = updatedSession!.pendingRound?.characters.findIndex(p => p.playerId === playerId) || -1;
+    assert.strictEqual(updatedSession!.pendingRound?.description, mockUpdates.description);
+    assert.strictEqual(updatedSession!.pendingRound?.characters[player_index].status, 'Scared');
+    assert.strictEqual(updatedSession!.pendingRound?.characters[player_index].privateMessage, 'You hear a whisper.');
+    assert.strictEqual(updatedSession!.pendingRound?.characters[player_index].badges.length, 1);
+    assert.strictEqual(updatedSession!.pendingRound?.characters[player_index].badges[0].name, 'Survivor');
 
     console.log('  PASS');
 

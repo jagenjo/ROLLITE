@@ -2,8 +2,7 @@
   "sessionId": "2CASZR",
   "gameName": "aaa",
   "round": 1,
-  "playerCount": 1,
-  "onlineCount": 1,
-  "directorId": "char_wizard",
+  "playerCount": 0,
+  "onlineCount": 0,
   "isEnded": false
 }

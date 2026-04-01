@@ -1,19 +1,19 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Scene, Message } from '../../shared/types.js';
+import type { Round, Message } from '../../shared/types.js';
 
 @customElement('player-dashboard')
 export class PlayerDashboard extends LitElement {
-  @property({ type: Object }) currentScene: Scene | null = null;
+  @property({ type: Object }) currentRound: Round | null = null;
   @property({ type: Boolean }) isRoundActive = false;
-  @property({ type: Number }) round = 1;
+  @property({ type: Number }) round_number = 0;
   @property({ type: Array }) messages: Message[] = [];
   @property({ type: String }) currentUserId = '';
 
   @state() private _action = '';
 
   willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
-    if (changedProperties.has('round')) {
+    if (changedProperties.has('round_number')) {
       this._action = '';
     }
   }
@@ -75,6 +75,23 @@ export class PlayerDashboard extends LitElement {
       font-style: italic;
       color: #9ca3af;
     }
+
+    .status-message.waiting {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      min-height: 150px;
+    }
+
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
     
     .submitted-action {
         background-color: #374151;
@@ -82,6 +99,11 @@ export class PlayerDashboard extends LitElement {
         border-radius: 0.25rem;
         margin-top: 1rem;
         border-left: 4px solid #10b981;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
   `;
 
@@ -98,12 +120,10 @@ export class PlayerDashboard extends LitElement {
   }
 
   render() {
-    // Check if player has already submitted an action for this round
-    const submittedAction = this.messages.find(m =>
-      m.isAction &&
-      m.senderId === this.currentUserId &&
-      m.round === this.round
-    );
+    // Check if player has already submitted an action for this round from the round character object
+    const myChar = this.currentRound?.characters?.find(c => c.playerId === this.currentUserId);
+    const submittedActionContent = myChar?.action || '';
+    const privateMessage = myChar?.privateMessage || '';
 
     if (this.isEnded) {
       return html`
@@ -112,9 +132,15 @@ export class PlayerDashboard extends LitElement {
             <div class="status-message" style="color: #ef4444; font-weight: bold;">
                 The game has ended. No further actions can be submitted.
             </div>
-            ${submittedAction ? html`
+            ${privateMessage ? html`
+              <div style="margin-top: 1rem; padding: 1rem; background-color: rgba(139, 92, 246, 0.1); border-radius: 0.5rem; border: 1px solid #8b5cf6;">
+                <div style="font-size: 0.75rem; font-weight: bold; color: #a78bfa; margin-bottom: 0.5rem; text-transform: uppercase;">Direct Message from Director</div>
+                <div style="color: #e5e7eb; font-style: italic; line-height: 1.4;">${privateMessage}</div>
+              </div>
+            ` : ''}
+            ${submittedActionContent ? html`
               <div class="submitted-action">
-                  <strong>You:</strong> ${submittedAction.content}
+                  <strong>You:</strong> ${submittedActionContent}
               </div>
             ` : ''}
           </div>
@@ -124,8 +150,14 @@ export class PlayerDashboard extends LitElement {
     return html`
       <div class="panel">
         <!--<h2>Your Action</h2>-->
+        ${privateMessage ? html`
+          <div style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(139, 92, 246, 0.1); border-radius: 0.5rem; border: 1px solid #8b5cf6; animation: fadeIn 0.5s ease-out;">
+            <div style="font-size: 0.75rem; font-weight: bold; color: #a78bfa; margin-bottom: 0.5rem; text-transform: uppercase;">Direct Message from Director</div>
+            <div style="color: #e5e7eb; font-style: italic; line-height: 1.4;">${privateMessage}</div>
+          </div>
+        ` : ''}
         ${this.isRoundActive ? html`
-          ${!submittedAction ? html`
+          ${!submittedActionContent ? html`
             <textarea
               .value="${this._action}"
               @input="${(e: Event) => this._action = (e.target as HTMLTextAreaElement).value}"
@@ -133,10 +165,23 @@ export class PlayerDashboard extends LitElement {
             ></textarea>
             <button @click="${this._submitAction}">Submit Action</button>
           ` : html`
-            <div class="status-message">Action submitted. Waiting for next round...</div>
+            <div class="status-message waiting">
+              <svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+              </svg>
+              <span>Action submitted. Waiting for next round...</span>
+            </div>
+            <div class="submitted-action">
+                <strong>Your Action:</strong> ${submittedActionContent}
+            </div>
           `}
         ` : html`
-          <div class="status-message">Waiting for the director to start the round...</div>
+          <div class="status-message waiting">
+            <svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            <span>Waiting for the director to start the round...</span>
+          </div>
         `}
       </div>
     `;

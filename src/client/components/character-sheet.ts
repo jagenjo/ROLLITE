@@ -1,8 +1,9 @@
 
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Player, Badge } from '../../shared/types.js';
+import type { Player, Badge, Round } from '../../shared/types.js';
 import './avatar-selector';
+import { showNotification } from './notification-manager.js';
 
 @customElement('character-sheet')
 export class CharacterSheet extends LitElement {
@@ -13,13 +14,15 @@ export class CharacterSheet extends LitElement {
     @property({ type: String }) statusText = ''; // Current status (from scene)
     @property({ type: String }) background = ''; // Character background
     @property({ type: String }) sessionId = '';
+    @property({ type: Number }) avatarIndex = 0;
+    @property({ type: Object }) draftRound: Round | null = null;
 
     private async _copyInviteLink() {
         if (!this.sessionId || !this.player) return;
         const url = `${window.location.origin}/?session=${this.sessionId}&player=${this.player.id}`;
         try {
             await navigator.clipboard.writeText(url);
-            alert('Invite link copied!');
+            showNotification('Invite link copied!', 'success');
         } catch (err) {
             console.error('Failed to copy: ', err);
             prompt('Copy this link:', url);
@@ -320,7 +323,7 @@ export class CharacterSheet extends LitElement {
     render() {
         if (!this.isOpen || !this.player) return null;
 
-        const avatarIdx = this.player.avatarIndex || 0;
+        const avatarIdx = this.avatarIndex || 0;
 
         // Filter badges: remove invisible ones (starting with _) unless director
         const visibleBadges = this.isDirector
@@ -438,20 +441,19 @@ export class CharacterSheet extends LitElement {
                             ` : ''}
                         </div>
 
-                        <!-- Background Section -->
                         <div style="flex: 1; display: flex; flex-direction: column;">
                             <div class="section-title">Background</div>
                             ${this.isDirector ? html`
                                 <textarea 
                                     class="edit-input" 
                                     style="flex: 1;"
-                                    .value="${this.player.background || ''}"
+                                    .value="${this.background || ''}"
                                     @change="${(e: Event) => this.dispatchEvent(new CustomEvent('update-player-background', { detail: { playerId: this.player!.id, background: (e.target as HTMLTextAreaElement).value }, bubbles: true, composed: true }))}"
                                     placeholder="Write character background here..."
                                 ></textarea>
                             ` : html`
                                 <div style="text-align: left; line-height: 1.5; color: #d1d5db;">
-                                    ${this.player.background || html`<span style="color: #6b7280; font-size: 0.9rem;">No background information available.</span>`}
+                                    ${this.background || html`<span style="color: #6b7280; font-size: 0.9rem;">No background information available.</span>`}
                                 </div>
                             `}
                         </div>
@@ -461,7 +463,7 @@ export class CharacterSheet extends LitElement {
             </div>
         ${this._showAvatarSelector ? html`
              <avatar-selector
-                .selectedAvatarIndex="${this.player.avatarIndex || 0}"
+                .selectedAvatarIndex="${this.avatarIndex || 0}"
                 @close="${() => this._showAvatarSelector = false}"
                 @avatar-selected="${this._onAvatarSelected}"
             ></avatar-selector>

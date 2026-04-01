@@ -3,6 +3,9 @@ import { FileStorage } from '../game/file_storage.js';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 async function runTests() {
     console.log('Starting Game Flow Tests (using Real Persistence)...');
     // Use proper real FileStorage
@@ -70,11 +73,11 @@ async function runTests() {
     console.log('  PASS');
     // 4. Update Scene
     console.log('Test 4: Update Scene');
-    const newScene = { description: 'A dark room', image: 'img.jpg', playerStatuses: {} };
-    gameManager.updateScene(sessionId, newScene);
+    const newScene = { index: -1, description: 'A dark room', image: 'img.jpg', playerStatuses: {}, characters: [] };
+    gameManager.updateRound(sessionId, newScene);
     gameManager.startRound(sessionId);
     const sessionActive = gameManager.getSession(sessionId);
-    assert.strictEqual(sessionActive?.currentScene?.description, 'A dark room');
+    assert.strictEqual(sessionActive?.currentRound?.description, 'A dark room');
     console.log('  PASS');
     // 5. End Session
     console.log('Test 5: End Session');
@@ -100,38 +103,39 @@ async function runTests() {
     const badgeSessionId = gameManager.createSession('Director', 'Director', 'Badge Game', 0);
     const badgePlayer = gameManager.createPlayer(badgeSessionId, 'BadgePlayer', 0, []);
     // Setup initial scene
-    gameManager.updateScene(badgeSessionId, { description: 'Round 1', playerBadges: {} });
+    gameManager.updateRound(badgeSessionId, { index: -1, description: 'Round 1', characters: [] });
     // Add badge in round 1
     gameManager.startRound(badgeSessionId); // Start round 1
     gameManager.addBadge(badgeSessionId, badgePlayer.id, 'Bravery', false);
     // Check it exists
     let bs = gameManager.getSession(badgeSessionId);
-    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer.id].length, 1);
-    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer.id][0].name, 'Bravery');
+    const player_index = bs?.players.findIndex(p => p.id === badgePlayer.id) || -1;
+    assert.strictEqual(bs?.currentRound?.characters[player_index]?.badges.length, 1);
+    assert.strictEqual(bs?.currentRound?.characters[player_index]?.badges[0].name, 'Bravery');
     // Next round
     gameManager.nextRound(badgeSessionId);
     bs = gameManager.getSession(badgeSessionId);
     // Should be in pending scene
-    assert.strictEqual(bs?.pendingScene?.playerBadges?.[badgePlayer.id].length, 1, 'Badge should persist to pending scene');
-    assert.strictEqual(bs?.pendingScene?.playerBadges?.[badgePlayer.id][0].name, 'Bravery');
+    assert.strictEqual(bs?.pendingRound?.characters[player_index].badges.length, 1, 'Badge should persist to pending scene');
+    assert.strictEqual(bs?.pendingRound?.characters[player_index].badges[0].name, 'Bravery');
     // Start round 2
     gameManager.startRound(badgeSessionId);
     bs = gameManager.getSession(badgeSessionId);
     // Should be in current scene of round 2
-    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer.id].length, 1, 'Badge should persist to next active round');
-    assert.strictEqual(bs?.currentScene?.playerBadges?.[badgePlayer.id][0].name, 'Bravery');
+    assert.strictEqual(bs?.currentRound?.characters[player_index].badges.length, 1, 'Badge should persist to next active round');
+    assert.strictEqual(bs?.currentRound?.characters[player_index].badges[0].name, 'Bravery');
     console.log('  PASS: Badges persist across rounds');
     // 8. Test Immutability of History
     console.log('Test 8: History Immutability');
     // Modify badge in current scene (Round 2)
-    const currentScene = bs?.currentScene;
-    if (currentScene && currentScene.playerBadges && currentScene.playerBadges[badgePlayer.id]) {
-        currentScene.playerBadges[badgePlayer.id][0].name = 'Cowardice'; // Mutate!
+    const currentScene = bs?.currentRound;
+    if (currentScene && currentScene.characters[player_index].badges[0].name) {
+        currentScene.characters[player_index].badges[0].name = 'Cowardice'; // Mutate!
     }
     // Check history (Round 1)
-    const historyRound1 = bs?.history.find(h => h.round === 1);
+    const historyRound1 = bs?.rounds.find(h => h.index === 1);
     assert.ok(historyRound1, 'History for round 1 should exist');
-    assert.strictEqual(historyRound1?.scene?.playerBadges?.[badgePlayer.id][0].name, 'Bravery', 'History should NOT be mutated');
+    assert.strictEqual(historyRound1?.characters[player_index].badges[0].name, 'Bravery', 'History should NOT be mutated');
     console.log('  PASS: History is immutable');
     console.log('\nAll tests passed successfully!');
 }

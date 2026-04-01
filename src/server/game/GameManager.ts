@@ -1,8 +1,7 @@
-import { GameState, Player, Scene, Message } from '../../shared/types.js';
+import { GameState, Player, Round, Character, Message, Badge } from '../../shared/types.js';
 
 export class GameManager {
     private sessions: Map<string, GameState> = new Map();
-    private players: Map<string, Player> = new Map();
     private fileStorage?: any;
 
     constructor(fileStorage?: any) {
@@ -20,51 +19,44 @@ export class GameManager {
 
                 // Override specific fields for the new session
                 initialState.sessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                initialState.gameName = gameName; // Use new name
+                initialState.gameName = gameName;
 
                 // Reset Director
-                const director: Player = { id: playerId, name: directorName, avatarIndex };
+                const director: Player = { id: playerId, name: directorName, isOnline: true };
                 initialState.director = director;
 
-                // Preserve existing players (characters) from template, excluding the old director
+                // Preserve existing players from template, excluding the old director
                 const oldDirectorId = template.director.id;
-                const accumulatedPlayers = template.players.filter((p: Player) => p.id !== oldDirectorId);
+                const templatePlayers = template.players.filter((p: Player) => p.id !== oldDirectorId);
 
-                initialState.players = [director, ...accumulatedPlayers];
-                initialState.players_online = [director];
+                initialState.players = [director, ...templatePlayers];
 
                 // Reset dynamic state
-                initialState.submittedActions = [];
                 initialState.messages = [];
-                initialState.history = []; // Optionally keep history or clear it? Clearing for fresh start.
-                initialState.isRoundActive = false; // Ensure starts inactive?
-                initialState.isEnded = false;
+                initialState.rounds = [];
                 initialState.status = 'INACTIVE';
                 initialState.createdAt = Date.now();
+                initialState.draftRound = null;
+                initialState.gameSummary = '';
+                initialState.goals = initialState.goals || [];
+                initialState.directives = initialState.directives || '';
+                initialState.autoGame = initialState.autoGame || false;
 
-                // If template had pending scene, keep it. 
-                // If it had current scene, maybe move it to pending if we want to start fresh? 
-                // For now, exact clone of scene state seems best, just resetting players/history.
             } else {
                 // Fallback if template fails
                 const sessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                const director: Player = { id: playerId, name: directorName, avatarIndex };
+                const director: Player = { id: playerId, name: directorName, isOnline: true };
                 initialState = {
                     sessionId,
                     gameName,
                     director,
                     players: [director],
-                    players_online: [director],
-                    currentScene: null,
-                    pendingScene: null,
-                    round: 1,
-                    isRoundActive: false,
-                    submittedActions: [],
+                    draftRound: null,
                     messages: [],
-                    history: [],
+                    rounds: [],
+                    gameSummary: '',
                     status: 'INACTIVE',
                     createdAt: Date.now(),
-                    lastRoundAt: Date.now(),
                     goals: [],
                     directives: '',
                     autoGame: false
@@ -72,23 +64,22 @@ export class GameManager {
             }
         } else {
             const sessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
-            const director: Player = { id: playerId, name: directorName, avatarIndex };
+            const director: Player = { id: playerId, name: directorName, isOnline: true };
 
             initialState = {
                 sessionId,
                 gameName,
                 director,
                 players: [director],
-                players_online: [director],
-                currentScene: null,
-                pendingScene: null, // For director only (draft)
-                round: 1,
-                isRoundActive: false,
-                submittedActions: [],
+                draftRound: null,
                 messages: [],
-                history: [],
+                rounds: [],
+                gameSummary: '',
                 status: 'INACTIVE',
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                goals: [],
+                directives: '',
+                autoGame: false
             };
         }
 
@@ -104,23 +95,22 @@ export class GameManager {
         const player: Player = {
             id: newPlayerId,
             name,
-            avatarIndex
+            isOnline: true
         };
         session.players.push(player);
 
-        // Add initial badges to current or pending scene if provided
-        if (badges.length > 0) {
-            let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
-            if (!targetScene && !session.isRoundActive) {
-                // Initialize pending scene if needed
-                if (!session.pendingScene) session.pendingScene = { description: '' };
-                targetScene = session.pendingScene;
-            }
+        // Add player to the current target round
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
+        if (!targetRound && session.status !== 'ROUND_ACTIVE') {
+            // Initialize draft round if needed
+            if (!session.draftRound) session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
+            targetRound = session.draftRound;
+        }
 
-            if (targetScene) {
-                if (!targetScene.playerBadges) targetScene.playerBadges = {};
-                targetScene.playerBadges[newPlayerId] = badges;
-            }
+        if (targetRound) {
+            const char = this.getOrCreateRoundCharacter(targetRound, newPlayerId);
+            char.badges = badges || [];
+            char.avatarIndex = avatarIndex;
         }
         return player;
     }
@@ -135,57 +125,68 @@ export class GameManager {
             return null;
         }
 
-        // Add to online players if not already there
-        const onlinePlayer = session.players_online?.find(p => p.id === playerId);
-        if (!onlinePlayer) {
-            session.players_online?.push(player);
-        }
-
+        player.isOnline = true;
         return session;
     }
 
     resumeSession(playerName: string): GameState | null {
-        for (let [key, session] of this.sessions.entries()) {
+        for (let session of this.sessions.values()) {
             if (session.director.name === playerName) {
-                session.players_online?.push({
-                    id: key,
-                    name: playerName
-                });
+                session.director.isOnline = true;
+                return session;
+            }
+            const player = session.players.find(p => p.name === playerName);
+            if (player) {
+                player.isOnline = true;
                 return session;
             }
         }
-        return null
+        return null;
     }
 
     getSession(sessionId: string): GameState | undefined {
         return this.sessions.get(sessionId);
     }
 
-    updateScene(sessionId: string, scene: Scene): GameState | null {
+    updateRound(sessionId: string, round: Round): GameState | null {
+        console.log('>> updateRound', sessionId);
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
 
-        if (targetScene) {
-            targetScene.description = scene.description;
-        } else if (!session.isRoundActive) {
-            // If inactive and no pending scene, create one
-            session.pendingScene = scene;
+        if (targetRound) {
+            if (round.description !== undefined) {
+                targetRound.description = round.description;
+            }
+            if (round.characters !== undefined) {
+                targetRound.characters = round.characters;
+            }
+        } else if (session.status !== 'ROUND_ACTIVE') {
+            // If inactive and no draft round, create one
+            session.draftRound = {
+                index: session.rounds.length,
+                description: round.description || '',
+                summary: round.summary || '',
+                characters: round.characters || [],
+                hasFinished: false
+            };
         }
 
         return session;
     }
 
     startRound(sessionId: string): GameState | null {
+        console.log('>> startRound', sessionId);
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const sceneSource = session.pendingScene;
+        const roundSource = session.draftRound;
 
-        // Process private messages from pending scene
-        if (sceneSource?.privateMessages) {
-            Object.entries(sceneSource.privateMessages).forEach(([playerId, content]) => {
+        // Process private messages from draft round characters
+        if (roundSource?.characters) {
+            roundSource.characters.forEach(char => {
+                const content = char.privateMessage;
                 if (!content) return;
                 const message: Message = {
                     id: Math.random().toString(36).substring(7),
@@ -194,41 +195,40 @@ export class GameManager {
                     content: content,
                     timestamp: Date.now(),
                     isAction: false,
-                    round: session.round,
-                    recipientId: playerId
+                    round: session.rounds.length,
+                    recipientId: char.playerId
                 };
                 session.messages.push(message);
             });
         }
 
-        // Apply pending player statuses from pending scene
-        if (sceneSource?.playerStatuses) {
-            Object.entries(sceneSource.playerStatuses).forEach(([playerId, status]) => {
-                const player = session.players?.find(p => p.id === playerId);
-                if (player) player.statusText = status;
-
-                const onlinePlayer = session.players_online?.find(p => p.id === playerId);
-                if (onlinePlayer) onlinePlayer.statusText = status;
-            });
-        }
-
-        if (sceneSource) {
-            session.currentScene = sceneSource;
-            session.isRoundActive = true;
+        if (roundSource) {
+            roundSource.index = session.rounds.length;
+            session.rounds.push(roundSource);
             session.status = 'ROUND_ACTIVE';
-            session.pendingScene = null;
-        } else if (!session.isRoundActive && session.currentScene) {
-            // If no pending scene but we want to start (maybe re-start?), just set active
-            session.isRoundActive = true;
+            session.draftRound = null;
+        } else if (session.status !== 'ROUND_ACTIVE' && session.rounds.length > 0) {
             session.status = 'ROUND_ACTIVE';
         }
-
-        session.lastRoundAt = Date.now();
 
         return session;
     }
 
+    private getOrCreateRoundCharacter(round: Round, playerId: string): Character {
+        console.log('>> getOrCreateRoundCharacter', playerId);
+        if (!round.characters) {
+            round.characters = [];
+        }
+        let char = round.characters.find(c => c.playerId === playerId);
+        if (!char) {
+            char = { playerId, status: '', badges: [], action: '' };
+            round.characters.push(char);
+        }
+        return char;
+    }
+
     addMessage(sessionId: string, message: Message): GameState | null {
+        console.log('>> addMessage', message);
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
@@ -236,18 +236,19 @@ export class GameManager {
         return session;
     }
 
-    applyNextRoundUpdates(sessionId: string, description: string, characterUpdates: { id: string, statusText?: string, badge?: { name: string, hidden: boolean }, privateMessage?: string }[], summary?: string, goals?: { description: string, isCompleted: boolean }[]): GameState | null {
+    applyNextRoundUpdates(sessionId: string, description: string, characterUpdates: { id: string, statusText?: string, badge?: { name: string, hidden: boolean }, privateMessage?: string, avatarIndex?: number, background?: string }[], summary?: string, goals?: { description: string, isCompleted: boolean }[]): GameState | null {
+        console.log('>> applyNextRoundUpdates', sessionId);
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        // Ensure pending scene exists
-        if (!session.pendingScene) {
-            session.pendingScene = { description: '' };
+        // Ensure draft round exists
+        if (!session.draftRound) {
+            session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
         }
 
         // 1. Update Description
         if (description) {
-            session.pendingScene.description = description;
+            session.draftRound.description = description;
         }
 
         // 2. Update Summary
@@ -262,37 +263,47 @@ export class GameManager {
 
         // 3. Process Character Updates
         for (const update of characterUpdates) {
+            const char = this.getOrCreateRoundCharacter(session.draftRound, update.id);
+
             // Status Text
             if (update.statusText !== undefined) {
-                if (!session.pendingScene.playerStatuses) session.pendingScene.playerStatuses = {};
-                session.pendingScene.playerStatuses[update.id] = update.statusText;
+                char.status = update.statusText;
             }
 
             // Private Message
             if (update.privateMessage) {
-                if (!session.pendingScene.privateMessages) session.pendingScene.privateMessages = {};
-                session.pendingScene.privateMessages[update.id] = update.privateMessage;
+                char.privateMessage = update.privateMessage;
+            }
+
+            if (update.avatarIndex !== undefined) {
+                char.avatarIndex = update.avatarIndex;
+            }
+
+            if (update.background) {
+                char.background = update.background;
             }
 
             // Badges
-            // Only adding badges (not removing for now, as LLM usually grants things)
             if (update.badge) {
-                if (!session.pendingScene.playerBadges) session.pendingScene.playerBadges = {};
-                if (!session.pendingScene.playerBadges[update.id]) session.pendingScene.playerBadges[update.id] = [];
-                session.pendingScene.playerBadges[update.id].push(update.badge);
+                char.badges.push(update.badge);
             }
         }
 
         session.status = 'INACTIVE';
-        session.lastRoundAt = Date.now();
         return session;
     }
 
     removePlayer(sessionId: string, playerId: string): GameState | null {
+        console.log('>> removePlayer', playerId);
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        session.players_online = session.players_online?.filter(p => p.id !== playerId);
+        const player = session.players.find(p => p.id === playerId);
+        if (player) {
+            player.isOnline = false;
+        } else if (session.director.id === playerId) {
+            session.director.isOnline = false;
+        }
         return session;
     }
 
@@ -302,107 +313,46 @@ export class GameManager {
 
         // Permanent removal from session
         session.players = session.players.filter(p => p.id !== playerId);
-        session.players_online = session.players_online?.filter(p => p.id !== playerId);
 
-        // Remove from submitted actions
-        session.submittedActions = session.submittedActions.filter(id => id !== playerId);
-
-        // Cleanup pending scene data
-        if (session.pendingScene) {
-            if (session.pendingScene.playerStatuses) delete session.pendingScene.playerStatuses[playerId];
-            if (session.pendingScene.playerBadges) delete session.pendingScene.playerBadges[playerId];
-            if (session.pendingScene.privateMessages) delete session.pendingScene.privateMessages[playerId];
+        // Cleanup draft round data
+        if (session.draftRound) {
+            session.draftRound.characters = session.draftRound.characters.filter(c => c.playerId !== playerId);
         }
 
-        // Cleanup current scene data
-        if (session.currentScene) {
-            if (session.currentScene.playerStatuses) delete session.currentScene.playerStatuses[playerId];
-            if (session.currentScene.playerBadges) delete session.currentScene.playerBadges[playerId];
-            if (session.currentScene.privateMessages) delete session.currentScene.privateMessages[playerId];
+        // Cleanup current active round data
+        if (session.status === 'ROUND_ACTIVE' && session.rounds.length > 0) {
+            const currentRound = session.rounds[session.rounds.length - 1];
+            currentRound.characters = currentRound.characters.filter(c => c.playerId !== playerId);
         }
 
         return session;
     }
 
     submitAction(sessionId: string, playerId: string, action: string): GameState | null {
-        console.log(`GameManager.submitAction: sessionId=${sessionId}, playerId=${playerId}, action=${action}`);
         const session = this.sessions.get(sessionId);
-        if (!session) {
-            console.log('Session not found');
+        if (!session || session.status !== 'ROUND_ACTIVE' || session.rounds.length === 0) {
             return null;
         }
 
-        // Check if player has already submitted
-        if (session.submittedActions.includes(playerId)) {
-            console.log('Player already submitted');
-            return null;
-        }
-
-        const player = session.players?.find(p => p.id === playerId);
-        if (!player) {
-            console.log('Player not found in session');
-            return null;
-        }
-
-        const message: Message = {
-            id: Math.random().toString(36).substring(7),
-            senderId: playerId,
-            senderName: player.name,
-            content: action,
-            timestamp: Date.now(),
-            isAction: true,
-            round: session.round
-        };
-
-        session.messages.push(message);
-        if (!session.submittedActions.includes(playerId)) {
-            session.submittedActions.push(playerId);
-        }
-        console.log('Action added. New submittedActions:', session.submittedActions);
+        const currentRound = session.rounds[session.rounds.length - 1];
+        const char = this.getOrCreateRoundCharacter(currentRound, playerId);
+        char.action = action;
         return session;
     }
 
     updatePlayerAction(sessionId: string, playerId: string, actionContent: string): GameState | null {
         const session = this.sessions.get(sessionId);
-        if (!session) return null;
+        if (!session || session.status !== 'ROUND_ACTIVE' || session.rounds.length === 0) return null;
 
-        const player = session.players.find(p => p.id === playerId);
-        if (!player) return null;
-
-        // Find existing action for this player in this round
-        let actionMessage = session.messages.find(m => m.senderId === playerId && m.round === session.round && m.isAction);
-
-        if (actionMessage) {
-            actionMessage.content = actionContent;
-            actionMessage.timestamp = Date.now();
-        } else {
-            // Create new action if doesn't exist
-            actionMessage = {
-                id: Math.random().toString(36).substring(7),
-                senderId: playerId,
-                senderName: player.name,
-                content: actionContent,
-                timestamp: Date.now(),
-                isAction: true,
-                round: session.round
-            };
-            session.messages.push(actionMessage);
-        }
-
-        // Ensure player is in submittedActions
-        if (!session.submittedActions.includes(playerId)) {
-            session.submittedActions.push(playerId);
-        }
+        const currentRound = session.rounds[session.rounds.length - 1];
+        const char = this.getOrCreateRoundCharacter(currentRound, playerId);
+        char.action = actionContent;
 
         return session;
     }
 
     leaveSession(sessionId: string, playerId: string): GameState | null {
-        const session = this.sessions.get(sessionId);
-        if (!session) return null;
-
-        session.players_online = session.players_online?.filter(p => p.id !== playerId);
-        return session;
+        return this.removePlayer(sessionId, playerId);
     }
 
     updateDirectives(sessionId: string, directives: string): GameState | null {
@@ -461,53 +411,40 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        if (session.currentScene) {
-            // Snapshot player statuses
-            const statuses: Record<string, string> = {};
-            session.players.forEach(p => {
-                if (p.statusText) statuses[p.id] = p.statusText;
-            });
-            session.currentScene.playerStatuses = statuses;
+        if (session.status === 'ROUND_ACTIVE' && session.rounds.length > 0) {
+            const currentRound = session.rounds[session.rounds.length - 1];
+            currentRound.hasFinished = true;
 
-            // Preserve badges for the next round
-            const currentBadges = session.currentScene.playerBadges ? JSON.parse(JSON.stringify(session.currentScene.playerBadges)) : {};
+            // Initialize draft round carry over characters
+            const nextCharacters: Character[] = currentRound.characters.map(c => ({
+                ...c,
+                action: '', // Reset action for next round
+                privateMessage: '' // Reset private message
+            }));
 
-            session.history.push({
-                round: session.round,
-                scene: session.currentScene
-            });
-
-            // Initialize pending scene with preserved badges
-            session.pendingScene = {
+            session.draftRound = {
+                index: session.rounds.length,
                 description: '',
-                playerBadges: currentBadges // Carry over badges (deep copied)
+                summary: '',
+                characters: nextCharacters,
+                hasFinished: false
             };
-        } else {
-            session.pendingScene = null; // Clear any pending drafts if no previous scene to inherit from
         }
 
-        session.round++;
-        session.submittedActions = [];
-        session.currentScene = null; // Clear scene description
-        session.isRoundActive = false; // Wait for director to update scene
         session.status = 'INACTIVE';
-        // Optionally clear action messages or keep them? 
-        // For now, we keep them as history.
         return session;
     }
 
-    getSessionSummaries(): any[] {
+    getSessionSummaries() {
         return Array.from(this.sessions.values()).map(s => ({
             sessionId: s.sessionId,
             gameName: s.gameName,
-            round: s.round,
+            round_number: s.rounds.length,
             playerCount: s?.players?.length || 0,
-            onlineCount: s?.players_online?.length || 0,
+            onlineCount: s?.players.filter(p => p.isOnline).length || 0,
             directorId: s?.director?.id,
-            isEnded: !!s.isEnded,
             status: s.status || 'INACTIVE',
-            createdAt: s.createdAt,
-            lastRoundAt: s.lastRoundAt
+            createdAt: s.createdAt
         }));
     }
 
@@ -549,8 +486,7 @@ export class GameManager {
     endSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
         if (session) {
-            session.isEnded = true;
-            session.status = 'ENDED'; // New: Set status to ended
+            session.status = 'ENDED';
             if (this.fileStorage) {
                 this.fileStorage.saveGame(sessionId, session);
             }
@@ -563,22 +499,15 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
-        if (!targetScene) {
-            if (!session.isRoundActive) {
-                if (!session.pendingScene) session.pendingScene = { description: '' };
-                targetScene = session.pendingScene;
-            } else {
-                // Should not happen if isRoundActive is true but currentScene is null?
-                // But just in case
-                return null;
-            }
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
+        if (!targetRound && session.status !== 'ROUND_ACTIVE') {
+            if (!session.draftRound) session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
+            targetRound = session.draftRound;
         }
 
-        if (targetScene) {
-            if (!targetScene.playerBadges) targetScene.playerBadges = {};
-            if (!targetScene.playerBadges[playerId]) targetScene.playerBadges[playerId] = [];
-            targetScene.playerBadges[playerId].push({ name: badgeName, hidden });
+        if (targetRound) {
+            const char = this.getOrCreateRoundCharacter(targetRound, playerId);
+            char.badges.push({ name: badgeName, hidden });
         }
 
         return session;
@@ -587,12 +516,11 @@ export class GameManager {
     setPendingPrivateMessage(sessionId: string, playerId: string, content: string): GameState | null {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
-        if (!session.pendingScene) {
-            // Initialize pending scene if it doesn't exist so we can store messages
-            session.pendingScene = { description: '' };
+        if (!session.draftRound) {
+            session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
         }
-        if (!session.pendingScene.privateMessages) session.pendingScene.privateMessages = {};
-        session.pendingScene.privateMessages[playerId] = content;
+        const char = this.getOrCreateRoundCharacter(session.draftRound, playerId);
+        char.privateMessage = content;
         return session;
     }
 
@@ -600,17 +528,12 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        let targetScene = session.isRoundActive ? session.currentScene : session.pendingScene;
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
 
-        // If inactive, we must look at pendingScene. 
-        if (!session.isRoundActive && !targetScene) {
-            // If no pending scene, nothing to remove from
-            return null;
-        }
-
-        if (targetScene && targetScene.playerBadges && targetScene.playerBadges[playerId]) {
-            if (badgeIndex >= 0 && badgeIndex < targetScene.playerBadges[playerId].length) {
-                targetScene.playerBadges[playerId].splice(badgeIndex, 1);
+        if (targetRound) {
+            const char = targetRound.characters.find(c => c.playerId === playerId);
+            if (char && char.badges && badgeIndex >= 0 && badgeIndex < char.badges.length) {
+                char.badges.splice(badgeIndex, 1);
                 return session;
             }
         }
@@ -622,18 +545,16 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const player = session.players?.find(p => p.id === playerId);
-        const playerOnline = session.players_online?.find(p => p.id === playerId);
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
 
-        if (session.isRoundActive) {
-            if (player) player.statusText = statusText;
-            if (playerOnline && playerOnline !== player) playerOnline.statusText = statusText;
-        } else {
-            if (!session.pendingScene) {
-                session.pendingScene = { description: '' };
-            }
-            if (!session.pendingScene.playerStatuses) session.pendingScene.playerStatuses = {};
-            session.pendingScene.playerStatuses[playerId] = statusText;
+        if (!targetRound && session.status !== 'ROUND_ACTIVE') {
+            session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
+            targetRound = session.draftRound;
+        }
+
+        if (targetRound) {
+            const char = this.getOrCreateRoundCharacter(targetRound, playerId);
+            char.status = statusText;
         }
 
         return session;
@@ -643,15 +564,16 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const player = session.players?.find(p => p.id === playerId);
-        const playerOnline = session.players_online?.find(p => p.id === playerId);
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
 
-        if (player) {
-            player.avatarIndex = avatarIndex;
+        if (!targetRound && session.status !== 'ROUND_ACTIVE') {
+            session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
+            targetRound = session.draftRound;
         }
-        // If objects are different references
-        if (playerOnline && playerOnline !== player) {
-            playerOnline.avatarIndex = avatarIndex;
+
+        if (targetRound) {
+            const char = this.getOrCreateRoundCharacter(targetRound, playerId);
+            char.avatarIndex = avatarIndex;
         }
 
         return session;
@@ -661,14 +583,16 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
 
-        const player = session.players?.find(p => p.id === playerId);
-        const playerOnline = session.players_online?.find(p => p.id === playerId);
+        let targetRound = session.status === 'ROUND_ACTIVE' ? session.rounds[session.rounds.length - 1] : session.draftRound;
 
-        if (player) {
-            player.background = background;
+        if (!targetRound && session.status !== 'ROUND_ACTIVE') {
+            session.draftRound = { index: session.rounds.length, description: '', summary: '', characters: [], hasFinished: false };
+            targetRound = session.draftRound;
         }
-        if (playerOnline && playerOnline !== player) {
-            playerOnline.background = background;
+
+        if (targetRound) {
+            const char = this.getOrCreateRoundCharacter(targetRound, playerId);
+            char.background = background;
         }
 
         return session;
@@ -679,13 +603,11 @@ export class GameManager {
         if (!session) return null;
 
         const player = session.players?.find(p => p.id === playerId);
-        const playerOnline = session.players_online?.find(p => p.id === playerId);
 
         if (player) {
             player.name = name;
-        }
-        if (playerOnline && playerOnline !== player) {
-            playerOnline.name = name;
+        } else if (session.director.id === playerId) {
+            session.director.name = name;
         }
 
         return session;
@@ -695,10 +617,8 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return false;
 
-        // Restriction: Can only save as template in early rounds (Round 1) to avoid carrying over too much baggage?
-        // Or maybe strictly Round 1.
-        if (session.round > 1) {
-            console.warn(`Cannot save as template: Round is ${session.round}`);
+        if (session.rounds.length > 1) {
+            console.warn(`Cannot save as template: Round is ${session.rounds.length}`);
             return false;
         }
 
@@ -710,10 +630,8 @@ export class GameManager {
         // Clean up for template
         templateState.gameName = templateName; // Store the template name here
         templateState.sessionId = 'TEMPLATE'; // Placeholder
-        templateState.players_online = [];
-        templateState.submittedActions = [];
         templateState.messages = [];
-        // Keep pendingScene and currentScene as the "content"
+        // Keep draftRound and rounds as the "content"
 
         // Generate a simple ID for the template file
         const templateId = Math.random().toString(36).substring(2, 10);
@@ -732,8 +650,8 @@ export class GameManager {
         const session = this.sessions.get(sessionId);
         if (!session) return false;
 
-        if (session.round > 1) {
-            console.warn(`Cannot load template into session ${sessionId}: Round is ${session.round}`);
+        if (session.rounds.length > 1) {
+            console.warn(`Cannot load template into session ${sessionId}: Round is ${session.rounds.length}`);
             return false;
         }
 
@@ -745,37 +663,19 @@ export class GameManager {
             return false;
         }
 
-        // Merge Logic
-        // Keep: sessionId, director, players_online, gameName, messages (cleared?), history (cleared)
-        // Overwrite: currentScene, pendingScene, round, submittedActions
-
-        session.currentScene = template.currentScene;
-        session.pendingScene = template.pendingScene;
-        session.round = 1; // Reset round to 1
-        session.isRoundActive = false;
-        session.status = 'INACTIVE'; // New: Set status to inactive
-        session.submittedActions = [];
-        session.history = []; // Reset history
-        session.messages = []; // Reset messages to start fresh
+        // Overwrite template-based fields
+        session.draftRound = template.draftRound;
+        session.status = 'INACTIVE';
+        session.rounds = [];
+        session.messages = [];
         session.gameSummary = template.gameSummary || "";
         session.goals = template.goals || [];
         session.directives = template.directives || "";
 
-        // Reset Players:
-        // Keep director, replace characters.
+        // Reset Players: Keep director, replace characters.
         const director = session.director;
-
-        // Filter out the OLD director from the template players
         const templatePlayers = template.players.filter((p: Player) => p.id !== template.director.id);
-
-        // Reconstruct player list: Director + Template Characters
         session.players = [director, ...templatePlayers];
-
-        // Ensure online players are still in the list (or at least valid)?
-        // If we reset players, online players might refer to objects no longer in `session.players` if we use strict reference equality.
-        // But `players_online` is a separate array.
-        // We should probably just ensure the director object in `players_online` is the same ref if possible, or just leave it.
-        // The front-end reconciles by ID usually.
 
         return true;
     }

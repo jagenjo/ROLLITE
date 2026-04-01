@@ -78,4 +78,58 @@ export class FileStorage {
             return { sessions: [] };
         }
     }
+    get templatesDir() {
+        return path.join(this.dataDir, 'templates');
+    }
+    saveTemplate(templateId, state) {
+        if (!fs.existsSync(this.templatesDir)) {
+            fs.mkdirSync(this.templatesDir);
+        }
+        const filePath = path.join(this.templatesDir, `${templateId}.json`);
+        try {
+            fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+            console.log(`Saved template ${templateId} to ${filePath}`);
+            return true;
+        }
+        catch (error) {
+            console.error(`Failed to save template ${templateId}:`, error);
+            return false;
+        }
+    }
+    loadTemplate(templateId) {
+        const filePath = path.join(this.templatesDir, `${templateId}.json`);
+        if (!fs.existsSync(filePath)) {
+            return null;
+        }
+        try {
+            const data = fs.readFileSync(filePath, 'utf-8');
+            return JSON.parse(data);
+        }
+        catch (error) {
+            console.error(`Failed to load template ${templateId}:`, error);
+            return null;
+        }
+    }
+    listTemplates() {
+        if (!fs.existsSync(this.templatesDir)) {
+            return [];
+        }
+        try {
+            const files = fs.readdirSync(this.templatesDir);
+            return files
+                .filter(file => file.endsWith('.json'))
+                .map(file => {
+                const id = file.replace('.json', '');
+                const data = this.loadTemplate(id);
+                return {
+                    id,
+                    name: data?.gameName || `Template ${id}`
+                };
+            });
+        }
+        catch (error) {
+            console.error('Failed to list templates:', error);
+            return [];
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { SessionSummary } from '../../shared/types.js';
+import { showNotification } from './notification-manager.js';
 
 @customElement('admin-dashboard')
 export class AdminDashboard extends LitElement {
@@ -21,7 +22,7 @@ export class AdminDashboard extends LitElement {
         if (session.directorId) {
             window.open(`/?session=${session.sessionId}&player=${session.directorId}`, '_blank');
         } else {
-            alert('Director ID not available');
+            showNotification('Director ID not available', 'error');
         }
         this._openMenuSessionId = null;
         this.requestUpdate();
@@ -94,7 +95,7 @@ export class AdminDashboard extends LitElement {
                               <tr class="${session.isEnded ? 'ended-session' : ''}">
                                   <td>${session.sessionId}</td>
                                   <td>${session.gameName}</td>
-                                  <td>${session.round}</td>
+                                  <td>${session.round_number + 1}</td>
                                   <td>${Math.max(0, session.onlineCount - 1)} / ${session.playerCount - 1}</td>
                                   <td>
                                       ${session.status}

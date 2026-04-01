@@ -2,31 +2,26 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { marked } from 'marked';
-import type { Scene, Message, Player, Goal } from '../../shared/types.js';
+import type { Round, Message, Player, Goal } from '../../shared/types.js';
+import { showNotification } from './notification-manager.js';
 import './player-card';
 import './avatar-selector';
 import './character-sheet';
 
 @customElement('director-dashboard')
 export class DirectorDashboard extends LitElement {
-  @property({ type: Array }) messages: Message[] = [];
-  @property({ type: Array }) history: { round: number; scene: Scene }[] = [];
+  @property({ type: Array }) rounds: Round[] = [];
   @property({ type: Array }) players: Player[] = [];
-  @property({ type: Number }) round = 1;
-  @property({ type: Number }) viewingRound = 1;
-  @property({ type: Boolean }) isRoundActive = false;
+  @property({ type: Number }) viewingRound = 0;
   @property({ type: String }) sessionId = '';
   @property({ type: String }) directorId = '';
-  @property({ type: Boolean }) isEnded = false;
-  @property({ type: Object }) currentScene: Scene | null = null;
-  @property({ type: Object }) pendingScene: Scene | null = null;
-  @property({ type: Array }) playersOnline: Player[] = [];
-  @property({ type: Array }) submittedActions: string[] = [];
+  @property({ type: Object }) draftRound: Round | null = null;
   @property({ type: String }) status: string = 'INACTIVE';
   @property({ type: Array }) goals: Goal[] = [];
   @property({ type: String }) directives: string = '';
   @property({ type: Boolean }) isGenerating = false;
   @property({ type: Boolean }) autoGame = false;
+  @property({ type: Boolean }) aiEnabled = true;
 
   @state() private _newPlayerName = '';
   @state() private _newPlayerAvatar = 0;
@@ -40,6 +35,7 @@ export class DirectorDashboard extends LitElement {
   @state() private _newGoalDescription = '';
 
   @state() private _selectedPlayerId: string | null = null; // For character sheet
+  @state() private _showPreviousActions = true;
 
   @state() private _editingPrivateMsgId: string | null = null;
   @state() private _tempPrivateMsg = '';
@@ -77,7 +73,7 @@ export class DirectorDashboard extends LitElement {
 
   private _startEditingMsg(playerId: string) {
     this._editingPrivateMsgId = playerId;
-    this._tempPrivateMsg = this.pendingScene?.privateMessages?.[playerId] || '';
+    this._tempPrivateMsg = this.draftRound?.characters.find(c => c.playerId === playerId)?.privateMessage || '';
   }
 
   private _cancelPrivateMsg() {
@@ -99,9 +95,9 @@ export class DirectorDashboard extends LitElement {
 
   private _startEditingAction(playerId: string) {
     this._editingPlayerActionId = playerId;
-    // Find current round action if it exists
-    const actionMsg = this.messages.find(m => m.isAction && m.senderId === playerId && m.round === this.round);
-    this._tempPlayerAction = actionMsg?.content || '';
+    // Find current round action if it exists in the character object
+    const char = this.draftRound?.characters?.find(c => c.playerId === playerId);
+    this._tempPlayerAction = char?.action || '';
   }
 
   private _cancelPlayerAction() {
@@ -149,11 +145,12 @@ export class DirectorDashboard extends LitElement {
             AI Directives
           </h3>
           <div style="display: flex; gap: 0.75rem; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.25rem 0.6rem; border-radius: 1rem; border: 1px solid ${this.autoGame ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255,255,255,0.05)'}; transition: all 0.3s;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.25rem 0.6rem; border-radius: 1rem; border: 1px solid ${this.autoGame ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255,255,255,0.05)'}; transition: all 0.3s; opacity: ${this.aiEnabled ? '1' : '0.5'};">
                 <span style="font-size: 0.65rem; font-weight: bold; letter-spacing: 0.05em; color: ${this.autoGame ? '#10b981' : '#6b7280'}; transition: all 0.3s;">AUTOGAME</span>
                 <label class="switch">
                     <input 
                         type="checkbox" 
+                        ?disabled="${!this.aiEnabled}"
                         .checked="${this.autoGame}"
                         @change="${(e: Event) => {
         const checked = (e.target as HTMLInputElement).checked;
@@ -204,14 +201,14 @@ export class DirectorDashboard extends LitElement {
         <div style="margin-top: 1.5rem; border-top: 1px solid #374151; padding-top: 1rem; display: flex; justify-content: center;">
              <button 
                 @click="${this._generateNextRound}" 
-                ?disabled="${this.isGenerating || this.status === 'WAITING_AI' || this.isEnded}"
+                ?disabled="${!this.aiEnabled || this.isGenerating || this.status === 'WAITING_AI' || this.status === 'ENDED'}"
                 class="${(this.isGenerating || this.status === 'WAITING_AI') ? 'generating' : ''}"
-                style="width: 100%; padding: 0.75rem; font-size: 1rem; background-color: #8b5cf6; display: flex; align-items: center; justify-content: center; gap: 0.5rem;"
+                style="width: 100%; padding: 0.75rem; font-size: 1rem; background-color: ${!this.aiEnabled ? '#4b5563' : '#8b5cf6'}; color: ${!this.aiEnabled ? '#9ca3af' : 'white'}; display: flex; align-items: center; justify-content: center; gap: 0.5rem;"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                ${(this.isGenerating || this.status === 'WAITING_AI') ? 'AI is Thinking...' : 'Generate AI Round'}
+                ${!this.aiEnabled ? 'AI Features disabled!' : (this.isGenerating || this.status === 'WAITING_AI') ? 'AI is Thinking...' : 'Generate AI Round'}
             </button>
         </div>
       </div>
@@ -556,7 +553,7 @@ export class DirectorDashboard extends LitElement {
     const url = `${window.location.origin}/?session=${this.sessionId}&player=${playerId}`;
     try {
       await navigator.clipboard.writeText(url);
-      alert('Invite link copied!');
+      showNotification('Invite link copied!', 'success');
     } catch (err) {
       console.error('Failed to copy: ', err);
       prompt('Copy this link:', url);
@@ -564,30 +561,27 @@ export class DirectorDashboard extends LitElement {
   }
 
   render() {
-    const displayRound = this.viewingRound;
-    const isCurrentRound = displayRound === this.round;
+    const displayRoundNumber = this.viewingRound;
 
-    // Determine which actions to display
-    let actionsRound = displayRound;
-
-    if (isCurrentRound && !this.isRoundActive && this.round > 1) {
-      // If current round is inactive (waiting for scene update), show previous round's actions
-      actionsRound = this.round - 1;
-    }
+    // Determine which round data to use for actions/status/badges
+    const targetRound = displayRoundNumber < this.rounds.length ? this.rounds[displayRoundNumber] : this.draftRound;
 
     const selectedPlayer = this._selectedPlayerId
       ? this.players.find(p => p.id === this._selectedPlayerId) || null
       : null;
 
+    const selectedPlayerChar = selectedPlayer ? targetRound?.characters?.find(c => c.playerId === selectedPlayer.id) : null;
+    const draftCharData = selectedPlayer ? this.draftRound?.characters?.find(c => c.playerId === selectedPlayer.id) : null;
+
     // Aggregate badges for selected player
     const selectedPlayerBadges = selectedPlayer
-      ? (this.pendingScene?.playerBadges?.[selectedPlayer.id] || this.currentScene?.playerBadges?.[selectedPlayer.id] || [])
+      ? (draftCharData?.badges || selectedPlayerChar?.badges || [])
       : [];
     const formattedBadges = selectedPlayerBadges.map((b: any) => typeof b === 'string' ? { name: b, hidden: false } : b);
 
     // Get selected player status
     const selectedPlayerStatus = selectedPlayer
-      ? (this.pendingScene?.playerStatuses?.[selectedPlayer.id] || selectedPlayer.statusText || '')
+      ? (this.draftRound?.characters.find(c => c.playerId === selectedPlayer.id)?.status || selectedPlayerChar?.status || '')
       : '';
 
     return html`
@@ -599,8 +593,8 @@ export class DirectorDashboard extends LitElement {
             </div>
             
             <div style="display: flex; gap: 0.5rem;">
-                ${!this.isEnded ? html`
-                    ${!this.isRoundActive ? html`
+                ${this.status !== 'ENDED' ? html`
+                    ${this.status !== 'ROUND_ACTIVE' ? html`
                         <button @click="${this._startRound}" style="background-color: #3b82f6; border: none; padding: 0.4rem 1rem; font-size: 0.875rem;">Start Round</button>
                     ` : html`
                          <button @click="${this._triggerNextRound}" style="background-color: #fbbf24; color: #1f2937; border: none; padding: 0.4rem 1rem; font-size: 0.875rem;">Next Round</button>
@@ -617,22 +611,26 @@ export class DirectorDashboard extends LitElement {
       </div>
       <div class="panel">
             <div class="player-list">
-                ${this.players.filter(p => p.id !== this.directorId).map(p => {
-      const avatarIdx = p.avatarIndex || 0;
-      const isOnline = this.playersOnline.some(po => po.id === p.id);
-      const actionMsg = this.messages.find(m => m.isAction && m.senderId === p.id && m.round === actionsRound);
+                ${targetRound?.characters?.map((char, index) => {
+      const avatarIdx = char.avatarIndex || 0;
+      const player = this.players.find(player => player.id === char.playerId) as Player;
+      const isOnline = player?.isOnline;
+
+      // Get previous round action if applicable (most recent historical round before the displayed one)
+      const prevRoundEntry = this.rounds[displayRoundNumber - 1]
+      const prevActionContent = prevRoundEntry?.characters[index].action || '';
 
       return html`
                       <div style="display: flex; flex-direction: column; gap: 0rem">
                         <player-card 
-                          .name="${p.name}" 
+                          .name="${player.name}" 
                           .avatarIndex="${avatarIdx}" 
                           .online="${isOnline}"
                           style="cursor: pointer;"
-                          @click="${() => this._openCharacterSheet(p.id)}"
+                          @click="${() => this._openCharacterSheet(player.id)}"
                         >
                               <div slot="name-extras">
-                                  ${this.submittedActions.includes(p.id) ? html`<span style="color: #10b981; font-weight: bold;" title="Action Submitted">✓</span>` : ''}
+                                  ${this.status === 'ROUND_ACTIVE' && char.action ? html`<span style="color: #10b981; font-weight: bold;" title="Action Submitted">✓</span>` : ''}
                               </div>
                               <div 
                                   slot="avatar"
@@ -646,18 +644,24 @@ export class DirectorDashboard extends LitElement {
                                   >
                               </div>
   
-                              <div slot="status">
-                                  <div 
+                               <div slot="status">
+                                   <div 
                                       class="status-text" 
                                       style="font-size: 0.8rem; margin-bottom: 0.25rem;"
                                   >
-                                      ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || '')}
+                                      ${char.status ? html`<span style="color: #fbbf24; font-style: italic;">${char.status}</span>` : ''}
                                   </div>
+                                  ${prevActionContent ? html`
+                                      <div style="color: #60a5fa; font-size: 0.8rem; background: rgba(59, 130, 246, 0.1); padding: 0.3rem 0.6rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6; margin-top: 0.25rem; font-style: italic; line-height: 1.3;">
+                                        <span style="font-size: 0.6rem; font-weight: bold; color: #3b82f6; text-transform: uppercase; margin-right: 0.4rem; font-style: normal;">Prev Action:</span>
+                                        ${prevActionContent}
+                                      </div>
+                                  ` : ''}
                               </div>
   
-                                    <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
-                                        <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
-                                            ${(this.pendingScene?.playerBadges?.[p.id] || this.currentScene?.playerBadges?.[p.id] || []).map((b: any) => {
+                                     <div slot="badges" style="font-size: 0.75rem; color: #9ca3af; display: flex; flex-direction: column; gap: 0.25rem;">
+                                         <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+                                            ${char.badges.map((b: any) => {
         const badgeName = typeof b === 'string' ? b : b.name;
         const isHidden = typeof b === 'string' ? false : b.hidden;
         return html`
@@ -666,28 +670,28 @@ export class DirectorDashboard extends LitElement {
                                                     </span>
                                                 `;
       })}
-                                        </div>
+                                         </div>
   
-                                    ${actionMsg ? html`
+                                    ${char.action ? html`
                                         <div style="color: #e5e7eb; font-size: 0.9rem; background: #374151; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border-left: 2px solid #3b82f6; margin-top: 0.25rem;">
-                                          ${actionMsg.content}
+                                          ${char.action}
                                         </div>
                                     ` : ''}
                                 </div>
                                 <div slot="actions" @click="${(e: Event) => e.stopPropagation()}">
                                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
-                                        <button 
-                                            @click="${() => this._startEditingMsg(p.id)}" 
-                                            style="background-color: ${this.pendingScene?.privateMessages?.[p.id] ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
-                                            title="${this.pendingScene?.privateMessages?.[p.id] ? 'Edit Private Message' : 'Send Private Message'}"
+                                         <button 
+                                            @click="${() => this._startEditingMsg(player.id)}" 
+                                            style="background-color: ${this.draftRound?.characters.find(c => c.playerId === player.id)?.privateMessage ? '#8b5cf6' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
+                                            title="${this.draftRound?.characters.find(c => c.playerId === player.id)?.privateMessage ? 'Edit Private Message' : 'Send Private Message'}"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                                             </svg>
                                         </button>
                                         <button 
-                                            @click="${() => this._startEditingAction(p.id)}" 
-                                            style="background-color: ${actionMsg ? '#10b981' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
+                                            @click="${() => this._startEditingAction(player.id)}" 
+                                            style="background-color: ${char.action ? '#10b981' : '#4b5563'}; padding: 0.25rem; display: flex; align-items: center; justify-content: center;"
                                             title="Edit Player Action"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -697,13 +701,13 @@ export class DirectorDashboard extends LitElement {
                                     </div>
                                 </div>
                             </player-card>
-                            ${this._editingPrivateMsgId === p.id ? html`
+                            ${this._editingPrivateMsgId === player.id ? html`
                                 <div style="margin-top: -0.5rem; background: #111827; padding: 0.75rem; border-radius: 0 0 0.5rem 0.5rem; border: 1px solid #8b5cf6; border-top: none; position: relative; z-index: 2; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
                                     <textarea
                                         style="width: 100%; min-height: 80px; margin-bottom: 0.5rem; resize: vertical; background: #1f2937; color: white; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.5rem; font-family: inherit; font-size: 0.875rem;"
                                         .value="${this._tempPrivateMsg}"
                                         @input="${(e: Event) => this._tempPrivateMsg = (e.target as HTMLTextAreaElement).value}"
-                                        placeholder="Write a private message for ${p.name}..."
+                                        placeholder="Write a private message for ${player.name}..."
                                         @click="${(e: Event) => e.stopPropagation()}"
                                     ></textarea>
                                     <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
@@ -711,20 +715,20 @@ export class DirectorDashboard extends LitElement {
                                         <button @click="${(e: Event) => { e.stopPropagation(); this._savePrivateMsg(); }}" style="background-color: #8b5cf6; font-size: 0.75rem; padding: 0.4rem 0.8rem;">Save Secret</button>
                                     </div>
                                 </div>
-                            ` : (this.pendingScene?.privateMessages?.[p.id] ? html`
+                            ` : (char.privateMessage ? html`
                                 <div style="font-size: 0.75rem; color: #a78bfa; font-style: italic; background: rgba(139, 92, 246, 0.1); padding: 0.4rem 0.75rem; border-radius: 0 0 0.5rem 0.5rem; margin-top: -0.5rem; border: 1px solid rgba(139, 92, 246, 0.2); border-top: none; position: relative; z-index: 1;">
-                                    <span style="font-weight: bold; opacity: 0.7;">Pending Secret:</span> "${this.pendingScene.privateMessages[p.id]}"
+                                    <span style="font-weight: bold; opacity: 0.7;">Pending Secret:</span> "${char.privateMessage}"
                                 </div>
                             ` : '')}
 
-                            ${this._editingPlayerActionId === p.id ? html`
+                            ${this._editingPlayerActionId === player.id ? html`
                                 <div style="margin-top: -0.5rem; background: #111827; padding: 0.75rem; border-radius: 0 0 0.5rem 0.5rem; border: 1px solid #10b981; border-top: none; position: relative; z-index: 2; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
                                     <div style="font-size: 0.75rem; color: #10b981; margin-bottom: 0.25rem; font-weight: bold;">ACTION OVERRIDE:</div>
                                     <textarea
                                         style="width: 90%; min-height: 80px; margin-bottom: 0.5rem; resize: vertical; background: #1f2937; color: white; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.5rem; font-family: inherit; font-size: 0.875rem;"
-                                        .value="${this._tempPlayerAction}"
-                                        @input="${(e: Event) => this._tempPlayerAction = (e.target as HTMLTextAreaElement).value}"
-                                        placeholder="Write an action for ${p.name}..."
+                                        .value="${char.action}"
+                                        @input="${(e: Event) => char.action = (e.target as HTMLTextAreaElement).value}"
+                                        placeholder="Write an action for ${player.name}..."
                                         @click="${(e: Event) => e.stopPropagation()}"
                                     ></textarea>
                                     <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
@@ -762,6 +766,7 @@ export class DirectorDashboard extends LitElement {
                             placeholder="Character Name" 
                             .value="${this._newPlayerName}"
                             @input="${(e: Event) => this._newPlayerName = (e.target as HTMLInputElement).value}"
+                            @keydown="${(e: KeyboardEvent) => e.key === 'Enter' && this._createPlayer()}"
                         />
                     </div>
                     <!-- Actions -->

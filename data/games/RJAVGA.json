@@ -1,0 +1,58 @@
+{
+  "sessionId": "RJAVGA",
+  "gameName": "e",
+  "director": {
+    "id": "ow0tr12wi5mm2a1a9c",
+    "name": "e",
+    "avatarIndex": 0
+  },
+  "players": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "e",
+      "avatarIndex": 0
+    },
+    {
+      "id": "7xt9j1a6m7ymmdmfkrw",
+      "name": "Octavio",
+      "avatarIndex": 0,
+      "background": "Soldado imperial, de complexion fuerte."
+    },
+    {
+      "id": "dvwnq93jsdfmmdmfo0m",
+      "name": "Cayo",
+      "avatarIndex": 0,
+      "background": "Soldado imperial, de complexion delgada"
+    }
+  ],
+  "players_online": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "e",
+      "avatarIndex": 0
+    }
+  ],
+  "currentRound": null,
+  "pendingRound": {
+    "description": "",
+    "characters": [],
+    "privateMessages": {}
+  },
+  "round_number": 1,
+  "isRoundActive": false,
+  "submittedActions": [],
+  "messages": [],
+  "rounds": [
+    {
+      "index": 0,
+      "round": {
+        "description": "Roma, año III A.C.\n\nOs encontrais encerrados en una celda del palacio imperial, a las afueras de Cartago. Se os ha acusado de ser traidores al Cesar.\n\nLa celda es pequeña, solo tiene una ventana con barrotes y una manta en el suelo.\nUna reja hace las veces de puerta.\n\nHay un ladrillo un poco suelto en la pared.",
+        "characters": []
+      }
+    }
+  ],
+  "status": "INACTIVE",
+  "createdAt": 1772743624521,
+  "isEnded": false,
+  "lastRoundAt": 1772743633342
+}

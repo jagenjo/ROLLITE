@@ -12,5 +12,6 @@
         "src/server",
         "src/shared"
     ],
-    "ext": "ts,js,json"
+    "ext": "ts,js,json",
+    "legacyWatch": true
 }

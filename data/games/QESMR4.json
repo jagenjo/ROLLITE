@@ -1,0 +1,25 @@
+{
+  "sessionId": "QESMR4",
+  "gameName": "ee",
+  "director": {
+    "id": "ow0tr12wi5mm2a1a9c",
+    "name": "rr",
+    "isOnline": true
+  },
+  "players": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "rr",
+      "isOnline": true
+    }
+  ],
+  "draftRound": null,
+  "messages": [],
+  "rounds": [],
+  "gameSummary": "",
+  "status": "INACTIVE",
+  "createdAt": 1773068664579,
+  "goals": [],
+  "directives": "",
+  "autoGame": false
+}

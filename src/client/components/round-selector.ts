@@ -3,8 +3,8 @@ import { customElement, property } from 'lit/decorators.js';
 
 @customElement('round-selector')
 export class RoundSelector extends LitElement {
-    @property({ type: Number }) currentRound = 1;
-    @property({ type: Number }) viewingRound = 1;
+    @property({ type: Number }) numberOfRounds = 0;
+    @property({ type: Number }) viewingRound = 0;
 
     static styles = css`
         :host {
@@ -59,7 +59,7 @@ export class RoundSelector extends LitElement {
     `;
 
     private _prev() {
-        if (this.viewingRound > 1) {
+        if (this.viewingRound >= 0) {
             this.dispatchEvent(new CustomEvent('view-round-change', {
                 detail: { round: this.viewingRound - 1 },
                 bubbles: true,
@@ -69,7 +69,7 @@ export class RoundSelector extends LitElement {
     }
 
     private _next() {
-        if (this.viewingRound < this.currentRound) {
+        if (this.viewingRound < this.numberOfRounds) {
             this.dispatchEvent(new CustomEvent('view-round-change', {
                 detail: { round: this.viewingRound + 1 },
                 bubbles: true,
@@ -83,7 +83,7 @@ export class RoundSelector extends LitElement {
             <div class="container">
                 <button 
                     @click="${this._prev}" 
-                    ?disabled="${this.viewingRound <= 1}"
+                    ?disabled="${this.viewingRound == 0}"
                     title="Previous Round"
                 >
                     ❮
@@ -91,15 +91,15 @@ export class RoundSelector extends LitElement {
                 
                 <div class="label">
                     Round 
-                    <span class="${this.viewingRound !== this.currentRound ? 'highlight' : ''}">
-                        ${this.viewingRound}
+                    <span class="${this.viewingRound === this.numberOfRounds - 1 ? 'highlight' : ''}">
+                        ${this.viewingRound + 1}
                     </span>
-                    <span style="color: #6b7280; font-weight: normal; margin-left: 2px;">/ ${this.currentRound}</span>
+                    <span style="color: #6b7280; font-weight: normal; margin-left: 2px;">/ ${this.numberOfRounds}</span>
                 </div>
 
                 <button 
                     @click="${this._next}" 
-                    ?disabled="${this.viewingRound >= this.currentRound}"
+                    ?disabled="${this.viewingRound === this.numberOfRounds - 1}"
                     title="Next Round"
                 >
                     ❯

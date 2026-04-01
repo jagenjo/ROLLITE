@@ -9,6 +9,7 @@ import fs from 'fs';
 import { GameManager } from './game/GameManager.js';
 import { FileStorage } from './game/file_storage.js';
 import { LLMService } from './services/LLMService.js';
+import { TelnetService } from './services/TelnetService.js';
 import { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from '../shared/types.js';
 
 dotenv.config();
@@ -111,6 +112,8 @@ app.get('/api/images', (req, res) => {
     });
 });
 
+const httpServer = createServer(app);
+
 if (isDev) {
     console.log('Starting in Development Mode with Vite Middleware...');
     const vite = await import('vite');
@@ -118,6 +121,8 @@ if (isDev) {
         server: {
             middlewareMode: true,
             watch: {
+                usePolling: true,
+                interval: 100,
                 ignored: ['**/public/uploads/**', '**/data/**']
             }
         },
@@ -156,7 +161,6 @@ app.get(/^(?!\/socket.io\/|(?:\/api\/)|(?:\/upload)).*$/, async (req, res) => {
     }
 });
 
-const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
     cors: {
         origin: "*",
@@ -167,7 +171,10 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
 const fileStorage = new FileStorage();
 const gameManager = new GameManager(fileStorage);
 const llmService = new LLMService();
-llmService.validateService();
+await llmService.validateService();
+
+const telnetService = new TelnetService(gameManager);
+telnetService.start();
 
 // Load existing state
 const index = fileStorage.loadGameIndex();
@@ -187,8 +194,117 @@ const PORT = process.env.PORT || 4001;
 // Multi-socket tracking: session_player -> socket count
 const playerSocketCounts = new Map<string, number>();
 
+const handleGenerateNextRound = async (sessionId: string) => {
+    const session = gameManager.getSession(sessionId);
+    if (!session || session.status === 'WAITING_AI') return;
+
+    console.log(`Generating next round for session ${sessionId}...`);
+
+    // Update status and notifying players
+    session.status = 'WAITING_AI';
+    broadcastGameStateGlobal(sessionId);
+
+    try {
+        // Get last 20 messages for context
+        const recentMessages = session.messages.slice(-20);
+
+        const llmResponse = await llmService.generateNextRound(
+            session.rounds,
+            session.players,
+            recentMessages,
+            session.rounds[session.rounds.length - 1] || null,
+            session.directives
+        );
+
+        console.log('LLM Response generated:', llmResponse);
+
+        let updatedSession = gameManager.applyNextRoundUpdates(
+            sessionId,
+            llmResponse.description,
+            llmResponse.characterUpdates,
+            llmResponse.gameSummary,
+            llmResponse.goals
+        );
+
+        if (updatedSession) {
+            // If AutoGame is ON, automatically START the round
+            if (updatedSession.autoGame) {
+                console.log(`AutoGame: starting round automatically for session ${sessionId}`);
+                const startedSession = gameManager.startRound(sessionId);
+                if (startedSession) {
+                    updatedSession = startedSession;
+                }
+            }
+            broadcastGameStateGlobal(sessionId);
+        }
+    } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to generate round';
+        console.error(`Error generating round for ${sessionId}:`, errorMsg);
+
+        session.status = 'INACTIVE';
+        broadcastGameStateGlobal(sessionId);
+
+        // Broadcast error to everyone so players know why it stopped, 
+        // especially if director is offline.
+        io.to(sessionId).emit('llmError', errorMsg);
+    }
+};
+
+const broadcastGameStateGlobal = (sessionId: string) => {
+    const session = gameManager.getSession(sessionId);
+    if (!session) return;
+
+    // Update Telnet users
+    telnetService.broadcastUpdate(sessionId);
+
+    const sockets = io.sockets.adapter.rooms.get(sessionId);
+    if (!sockets) return;
+
+    for (const socketId of sockets) {
+        const s = io.sockets.sockets.get(socketId);
+        if (!s) continue;
+
+        const isDirector = session.director.id === s.data.playerId;
+
+        if (isDirector) {
+            s.emit('gameStateUpdate', { ...session, aiEnabled: llmService.isAvailable });
+        } else {
+            // Players: hide draftRound and filter private messages
+            const sanitizedMessages = session.messages.filter(m => {
+                const isAllowed = !m.recipientId || m.recipientId === s.data.playerId;
+                return isAllowed;
+            });
+
+            // Deep-sanitize rounds to prevent seeing other players' secrets, but keep the current player's secret
+            const sanitizedRounds = session.rounds.map(r => ({
+                ...r,
+                characters: r.characters.map(c => {
+                    if (c.playerId === s.data.playerId) return c;
+                    const { privateMessage, ...charData } = c;
+                    return charData;
+                })
+            }));
+
+            const sanitizedState = {
+                ...session,
+                messages: sanitizedMessages,
+                rounds: sanitizedRounds,
+                draftRound: (session.status === 'ROUND_ACTIVE') ? session.draftRound : null,
+                aiEnabled: llmService.isAvailable
+            };
+            s.emit('gameStateUpdate', sanitizedState as any);
+        }
+    }
+};
+
+telnetService.onGenerate = handleGenerateNextRound;
+
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
+
+    const broadcastGameState = (sessionId: string) => {
+        broadcastGameStateGlobal(sessionId);
+    };
 
     socket.on('createSession', (token, name, gameName, avatarIndex, templateId) => {
         // Use token as playerId
@@ -202,7 +318,7 @@ io.on('connection', (socket) => {
         socket.join(sessionId);
         const session = gameManager.getSession(sessionId);
         if (session) {
-            socket.emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
@@ -226,14 +342,15 @@ io.on('connection', (socket) => {
         if (success) {
             const session = gameManager.getSession(sessionId);
             if (session) {
-                // Determine if we need to emit 'newScene' or just 'gameStateUpdate'
+                // Determine if we need to emit 'newRound' or just 'gameStateUpdate'
                 // gameStateUpdate should enable full refresh
-                io.to(sessionId).emit('gameStateUpdate', session);
+                broadcastGameState(sessionId);
 
-                // Emitting newScene might be redundant if the client re-renders on gameStateUpdate,
-                // but if we want to ensure the scene display updates immediately:
-                if (session.currentScene) {
-                    io.to(sessionId).emit('newScene', session.currentScene);
+                // Emitting newRound might be redundant if the client re-renders on gameStateUpdate,
+                // but if we want to ensure the round display updates immediately:
+                if (session.rounds.length > 0) {
+                    const latestRound = session.rounds[session.rounds.length - 1];
+                    io.to(sessionId).emit('newRound', latestRound);
                 }
             }
         }
@@ -244,7 +361,7 @@ io.on('connection', (socket) => {
         if (player) {
             const session = gameManager.getSession(sessionId);
             if (session) {
-                io.to(sessionId).emit('gameStateUpdate', session);
+                broadcastGameState(sessionId);
             }
         }
     });
@@ -264,7 +381,7 @@ io.on('connection', (socket) => {
             playerSocketCounts.set(key, (playerSocketCounts.get(key) || 0) + 1);
 
             socket.join(sessionId);
-            io.to(sessionId).emit('gameStateUpdate', joinedSession);
+            broadcastGameState(sessionId);
         } else {
             // Handle error: player not found
             console.log(`Failed to join session ${sessionId} with player ${playerId}`);
@@ -272,12 +389,12 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('updateScene', (scene) => {
+    socket.on('updateRound', (round) => {
         for (const room of socket.rooms) {
             if (room !== socket.id) {
-                const session = gameManager.updateScene(room, scene);
+                const session = gameManager.updateRound(room, round);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -288,9 +405,10 @@ io.on('connection', (socket) => {
             if (room === sessionId) {
                 const session = gameManager.startRound(room);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
-                    if (session.currentScene) {
-                        io.to(room).emit('newScene', session.currentScene);
+                    broadcastGameState(room);
+                    if (session.rounds.length > 0) {
+                        const latestRound = session.rounds[session.rounds.length - 1];
+                        io.to(room).emit('newRound', latestRound);
                     }
                 }
             }
@@ -301,7 +419,7 @@ io.on('connection', (socket) => {
         const session = gameManager.getSession(sessionId);
         if (session) {
             socket.join(sessionId);
-            socket.emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
             console.log(`Socket ${socket.id} started spectating session ${sessionId}`);
         } else {
             socket.emit('error', 'Session not found');
@@ -329,7 +447,7 @@ io.on('connection', (socket) => {
         const session = gameManager.endSession(sessionId);
         if (session) {
             console.log(`Session ${sessionId} ended`);
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
             const sessions = gameManager.getSessionSummaries();
             io.emit('systemStatsUpdate', sessions as any);
         }
@@ -341,7 +459,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.nextRound(room);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -352,7 +470,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.addBadge(room, playerId, badge, hidden);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -363,7 +481,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.removeBadge(room, playerId, badgeIndex);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -374,7 +492,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.setPendingPrivateMessage(room, playerId, message);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -385,7 +503,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.updatePlayerStatus(room, playerId, status);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -396,7 +514,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.updatePlayerAvatar(room, playerId, avatarIndex);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -407,7 +525,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.updatePlayerBackground(room, playerId, background);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -418,7 +536,7 @@ io.on('connection', (socket) => {
             if (room !== socket.id) {
                 const session = gameManager.updatePlayerName(room, playerId, name);
                 if (session) {
-                    io.to(room).emit('gameStateUpdate', session);
+                    broadcastGameState(room);
                 }
             }
         }
@@ -439,7 +557,7 @@ io.on('connection', (socket) => {
                     content,
                     timestamp: Date.now(),
                     isAction: false,
-                    round: session?.round || 0
+                    round: session?.rounds.length || 0
                 };
                 gameManager.addMessage(room, message);
                 io.to(room).emit('newMessage', message);
@@ -457,7 +575,7 @@ io.on('connection', (socket) => {
                 console.log(`Player ${playerId} disconnected from session ${sessionId}`);
                 const session = gameManager.leaveSession(sessionId, playerId);
                 if (session) {
-                    io.to(sessionId).emit('gameStateUpdate', session);
+                    broadcastGameState(sessionId);
                 }
             } else {
                 playerSocketCounts.set(key, count);
@@ -472,35 +590,35 @@ io.on('connection', (socket) => {
     socket.on('updateDirectives', (sessionId, directives) => {
         const session = gameManager.updateDirectives(sessionId, directives);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
     socket.on('toggleGoalCompletion', (sessionId, goalIndex) => {
         const session = gameManager.toggleGoalCompletion(sessionId, goalIndex);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
     socket.on('deleteGoal', (sessionId, goalIndex) => {
         const session = gameManager.deleteGoal(sessionId, goalIndex);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
     socket.on('addGoal', (sessionId, description) => {
         const session = gameManager.addGoal(sessionId, description);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
     socket.on('updatePlayerAction', (sessionId, playerId, action) => {
         const session = gameManager.updatePlayerAction(sessionId, playerId, action);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
@@ -509,64 +627,8 @@ io.on('connection', (socket) => {
         socket.emit('systemStatsUpdate', stats);
     });
 
-    const handleGenerateNextRound = async (sessionId: string, initiatorSocket?: any) => {
-        const session = gameManager.getSession(sessionId);
-        if (!session || session.status === 'WAITING_AI') return;
-
-        console.log(`Generating next round for session ${sessionId}...`);
-
-        // Update status and notifying players
-        session.status = 'WAITING_AI';
-        io.to(sessionId).emit('gameStateUpdate', session);
-
-        try {
-            // Get last 20 messages for context
-            const recentMessages = session.messages.slice(-20);
-
-            const llmResponse = await llmService.generateNextRound(
-                session.history,
-                session.players,
-                recentMessages,
-                session.currentScene,
-                session.directives
-            );
-
-            console.log('LLM Response generated:', llmResponse);
-
-            let updatedSession = gameManager.applyNextRoundUpdates(
-                sessionId,
-                llmResponse.description,
-                llmResponse.characterUpdates,
-                llmResponse.gameSummary,
-                llmResponse.goals
-            );
-
-            if (updatedSession) {
-                // If AutoGame is ON, automatically START the round
-                if (updatedSession.autoGame) {
-                    console.log(`AutoGame: starting round automatically for session ${sessionId}`);
-                    const startedSession = gameManager.startRound(sessionId);
-                    if (startedSession) {
-                        updatedSession = startedSession;
-                    }
-                }
-                io.to(sessionId).emit('gameStateUpdate', updatedSession);
-            }
-        } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : 'Failed to generate round';
-            console.error(`Error generating round for ${sessionId}:`, errorMsg);
-
-            session.status = 'INACTIVE';
-            io.to(sessionId).emit('gameStateUpdate', session);
-
-            // Broadcast error to everyone so players know why it stopped, 
-            // especially if director is offline.
-            io.to(sessionId).emit('llmError', errorMsg);
-        }
-    };
-
     socket.on('generateNextRound', async (sessionId) => {
-        await handleGenerateNextRound(sessionId, socket);
+        await handleGenerateNextRound(sessionId);
     });
 
     socket.on('submitAction', (action, token) => {
@@ -578,15 +640,17 @@ io.on('connection', (socket) => {
             const session = gameManager.submitAction(sessionId, playerId, action);
             if (session) {
                 console.log('Action submitted, emitting update to room:', sessionId);
-                io.to(sessionId).emit('gameStateUpdate', session);
+                broadcastGameState(sessionId as string);
 
                 // AutoGame trigger
-                if (session.autoGame && session.isRoundActive) {
+                if (session.autoGame && session.status === 'ROUND_ACTIVE') {
                     // Check if all players (excluding director) have submitted
-                    if (session.submittedActions.length >= session.players.length - 1) {
+                    const currentRound = session.rounds[session.rounds.length - 1];
+                    const submittedCount = currentRound.characters.filter(c => c.action).length;
+                    if (submittedCount >= session.players.length - 1) {
                         console.log(`AutoGame: all players submitted, automatically moving to generation`);
                         gameManager.nextRound(sessionId); // Ends current round activity
-                        handleGenerateNextRound(sessionId, socket);
+                        handleGenerateNextRound(sessionId as string);
                     }
                 }
             }
@@ -596,7 +660,7 @@ io.on('connection', (socket) => {
     socket.on('toggleAutoGame', (sessionId, autoGame) => {
         const session = gameManager.toggleAutoGame(sessionId, autoGame);
         if (session) {
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
@@ -605,14 +669,14 @@ io.on('connection', (socket) => {
         const session = gameManager.deletePlayer(sessionId, playerId);
         if (session) {
             console.log(`Server: Player ${playerId} deleted. New player count: ${session.players.length}`);
-            io.to(sessionId).emit('gameStateUpdate', session);
+            broadcastGameState(sessionId);
         }
     });
 
     socket.on('updateGameSummary', (sessionId, summary) => {
         const updatedSession = gameManager.updateGameSummary(sessionId, summary);
         if (updatedSession) {
-            io.to(sessionId).emit('gameStateUpdate', updatedSession);
+            broadcastGameState(sessionId);
         }
     });
 });

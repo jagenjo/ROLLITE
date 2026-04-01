@@ -2,18 +2,18 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { marked } from 'marked';
-import type { Scene, Message } from '../../shared/types.js';
+import type { Round, Message } from '../../shared/types.js';
 import './round-selector';
+import { showNotification } from './notification-manager.js';
 
 
 
-@customElement('scene-display')
-export class SceneDisplay extends LitElement {
-  @property({ type: Object }) scene: Scene | null = null;
-  @property({ type: Array }) history: { round: number; scene: Scene }[] = [];
+@customElement('round-display')
+export class RoundDisplay extends LitElement {
+  @property({ type: Object }) scene: Round | null = null;
+  @property({ type: Array }) rounds: Round[] = [];
   @property({ type: Array }) players: Array<{ id: string, name: string, avatarIndex?: number }> = [];
-  @property({ type: Number }) currentRound = 1;
-  @property({ type: Number }) viewingRound = 1;
+  @property({ type: Number }) viewingRound = 0;
   @property({ type: Boolean }) isDirector = false;
   @property({ type: Array }) messages: Message[] = [];
   @property({ type: String }) currentUserId = '';
@@ -44,7 +44,7 @@ export class SceneDisplay extends LitElement {
       color: white;
     }
 
-    .scene-container {
+    .round-container {
       background-color: #1f2937;
       border-radius: 0.5rem;
       overflow: hidden;
@@ -99,11 +99,25 @@ export class SceneDisplay extends LitElement {
     }
 
     .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      min-height: 200px;
       color: #6b7280;
       font-style: italic;
     }
 
-    .scene-scroll {
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    .round-scroll {
       overflow-y: auto;
       max-height: 65vh;
     }
@@ -430,8 +444,8 @@ export class SceneDisplay extends LitElement {
   }
 
 
-  private _updateScene() {
-    this.dispatchEvent(new CustomEvent('update-scene', {
+  private _updateRound() {
+    this.dispatchEvent(new CustomEvent('update-round', {
       detail: {
         description: this._editDescription
       },
@@ -485,7 +499,7 @@ export class SceneDisplay extends LitElement {
       if (file.type.startsWith('image/')) {
         await this._uploadImage(file);
       } else {
-        alert('Please drop an image file.');
+        showNotification('Please drop an image file.', 'error');
       }
     }
   }
@@ -493,7 +507,7 @@ export class SceneDisplay extends LitElement {
   private async _uploadImage(file: File) {
     if (!this.sessionId) {
       console.error('No session ID available for upload');
-      alert('Cannot upload: Session ID missing');
+      showNotification('Cannot upload: Session ID missing', 'error');
       return;
     }
 
@@ -525,11 +539,11 @@ export class SceneDisplay extends LitElement {
         }
       } else {
         console.error('Upload failed');
-        alert('Failed to upload image');
+        showNotification('Failed to upload image', 'error');
       }
     } catch (err) {
       console.error('Error uploading image:', err);
-      alert('Error uploading image');
+      showNotification('Error uploading image', 'error');
     }
   }
 
@@ -618,12 +632,19 @@ export class SceneDisplay extends LitElement {
     this._isEditingSummary = false;
   }
 
+  private get _maxViewableRounds() {
+    if (this.isDirector && !this.isRoundActive && !this.isEnded) {
+      return this.rounds.length + 1;
+    }
+    return Math.max(1, this.rounds.length);
+  }
+
   render() {
-    let displayScene = this.scene;
-    if (this.viewingRound < this.currentRound) {
-      const historicalRound = this.history.find(h => h.round === this.viewingRound);
+    let displayRound = this.scene;
+    if (this.viewingRound < this.rounds.length) {
+      const historicalRound = this.rounds[this.viewingRound];
       if (historicalRound) {
-        displayScene = historicalRound.scene;
+        displayRound = historicalRound;
       }
     }
 
@@ -632,16 +653,16 @@ export class SceneDisplay extends LitElement {
     const privateMessages = this.messages.filter(m => m.round === this.viewingRound && m.recipientId && (m.recipientId === this.currentUserId || this.isDirector));
 
     return html`
-      <div class="scene-container">
+      <div class="round-container">
         <div class="header">
             <div style="display: flex; gap: 1rem; align-items: center;">
                 <round-selector
-                    .currentRound="${this.currentRound}"
+                    .numberOfRounds="${this._maxViewableRounds}"
                     .viewingRound="${this.viewingRound}"
                 ></round-selector>
 
-                    ${this.isDirector && !this._isEditing ? html`
-                        <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Scene</button>
+                    ${this.isDirector && !this._isEditing && this.viewingRound === this.rounds.length ? html`
+                        <button @click="${this._startEditing}" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">Edit Round</button>
                     ` : ''}
                 </div>
                 ${this.isEnded ? html`<span style="color: #ef4444; font-weight: bold; margin-left: 1rem;">(GAME ENDED)</span>` : ''}
@@ -653,7 +674,7 @@ export class SceneDisplay extends LitElement {
               </div>
             ` : ''}
 
-        ${this._isEditing && this.viewingRound === this.currentRound ? html`
+        ${this._isEditing && this.viewingRound === this.rounds.length ? html`
             <div 
                 class="edit-form ${this._isDragging ? 'dragging' : ''}" 
                 @dragenter="${this._handleDragEnter}"
@@ -662,7 +683,7 @@ export class SceneDisplay extends LitElement {
                 @drop="${this._handleDrop}"
             >
                 <div class="form-group">
-                    <label>Scene Description (Drag & Drop images here)</label>
+                    <label>Round Description (Drag & Drop images here)</label>
                     <textarea
                         .value="${this._editDescription}"
                         @input="${(e: Event) => this._editDescription = (e.target as HTMLTextAreaElement).value}"
@@ -679,20 +700,29 @@ export class SceneDisplay extends LitElement {
                 </div>
 
                 <div class="button-row">
-                    <button @click="${this._updateScene}" style="background-color: #10b981; border: none;">Save Changes</button>
+                    <button @click="${this._updateRound}" style="background-color: #10b981; border: none;">Save Changes</button>
                     <button @click="${this._cancelEditing}">Cancel</button>
                 </div>
             </div>
         ` : ''
       }
 
-        ${!this._isEditing || this.viewingRound < this.currentRound ? html`
-          <div class='scene-scroll'>
+        ${!this._isEditing || this.viewingRound < this.rounds.length ? html`
+          <div class='round-scroll'>
 
             <div class="description">
-            ${displayScene?.description
-          ? unsafeHTML(marked.parse(displayScene.description) as string) // Changed to support Markdown
-          : html`<span class="placeholder">Waiting for the director to set the scene...</span>`
+            ${displayRound?.description
+          ? unsafeHTML(marked.parse(displayRound.description) as string)
+          : html`
+              <div class="placeholder">
+                ${!this.isDirector ? html`
+                <svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                ` : ''}
+                Waiting for the director to set the round...
+              </div>
+            `
         }
 
             ${privateMessages.length > 0 ? html`
@@ -728,7 +758,9 @@ export class SceneDisplay extends LitElement {
                 <div class="messages-list">
                     ${roundMessages.map(msg => {
           const player = this.players.find(p => p.id === msg.senderId);
-          const avatarIdx = player?.avatarIndex !== undefined ? player.avatarIndex : 0;
+          const msgRound = this.rounds[msg.round] || this.scene;
+          const char = msgRound?.characters?.find(c => c.playerId === msg.senderId);
+          const avatarIdx = char?.avatarIndex !== undefined ? char.avatarIndex : 0;
           const col = avatarIdx % 8;
           const row = Math.floor(avatarIdx / 8);
           const xOffset = -(col * 32);
@@ -752,7 +784,7 @@ export class SceneDisplay extends LitElement {
                     `})}
                 </div>
                 
-                ${this.viewingRound === this.currentRound && this.canChat && !this.isEnded ? html`
+                ${this.viewingRound === this.rounds.length && this.canChat && !this.isEnded ? html`
                     <div class="chat-input-area">
                         <input 
                             type="text" 

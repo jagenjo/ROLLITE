@@ -14,7 +14,7 @@ interface GameState {
     players_online: Player[];
     submittedActions: any[];
     messages: any[];
-    history: any[];
+    rounds: any[];
     gameName: string;
     isRoundActive: boolean;
     isEnded: boolean;
@@ -42,7 +42,7 @@ try {
         pendingScene: null,
         submittedActions: [],
         messages: [],
-        history: [],
+        rounds: [],
         gameName: 'Test Game',
         isRoundActive: false,
         isEnded: false

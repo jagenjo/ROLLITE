@@ -1,10 +1,4 @@
-
-import { Scene, Player, GameState, Message } from '../../shared/types.js';
-
-interface GameHistory {
-    round: number;
-    scene: Scene;
-}
+import { Round, Player, GameState, Message } from '../../shared/types.js';
 
 interface CharacterUpdate {
     id: string;
@@ -72,67 +66,35 @@ export class LLMService {
     private apiKey: string;
     private apiUrl: string;
     private model: string;
+    private defaultURL: string = "http://localhost:11434/" //'http://192.168.0.15:11434/api/chat'
+    private defaultModel: string = "qwen3.5:9b" //'kimi-k2.5:cloud'
+
+    isAvailable: boolean = false;
 
     constructor() {
         this.apiKey = process.env.LLM_API_KEY || '';
-        this.apiUrl = process.env.LLM_API_URL || 'http://192.168.0.15:11434/api/chat'//'https://api.openai.com/v1/chat/completions';
-        this.model = process.env.LLM_MODEL || 'kimi-k2.5:cloud' //'gpt-4o';
+        this.apiUrl = process.env.LLM_API_URL || this.defaultURL
+        this.model = process.env.LLM_MODEL || this.defaultModel
+        this.listModels();
         this.preload();
     }
 
     async preload() {
-        await fetch(this.apiUrl, {
-            method: 'POST',
-            body: JSON.stringify({
-                model: this.model
-            })
-        });
-    }
-
-    async validateService(): Promise<boolean> {
-        console.log('Validating LLM Service...');
+        console.log("preloading model " + this.model + " at " + this.apiUrl + "...")
         try {
-            const response = await this._callLLM('system', 'Respond only with the word APPLE');
-            const isValid = response.trim().toUpperCase().includes('APPLE');
-            if (isValid) {
-                console.log('LLM Service validation successful.');
-            } else {
-                console.warn('LLM Service validation returned unexpected response:', response);
-            }
-            return isValid;
-        } catch (error) {
-            console.error('LLM Service validation failed:', error);
-            return false;
+
+            const response = await fetch(this.apiUrl + "api/generate", {
+                method: 'POST',
+                body: JSON.stringify({
+                    model: this.model,
+                    prompt: "Hello",
+                    stream: false
+                })
+            });
+            console.log("model preloaded:", response.statusText)
         }
-    }
-
-    async generateNextRound(
-        history: { round: number; scene: Scene }[],
-        players: Player[],
-        lastMessages: Message[],
-        currentScene: Scene | null,
-        directives?: string
-    ): Promise<LLMResponse> {
-
-        if (!this.apiUrl) {
-            console.warn('No LLM_API_URL found. Returning mock response.');
-            return this.getMockResponse(players);
-        }
-
-        const userPrompt = this.constructUserPrompt(history, players, lastMessages, currentScene, directives);
-        console.log('User Prompt:', userPrompt);
-
-        try {
-            const content = await this._callLLM(systemPrompt, userPrompt);
-            const response = this.parseResponse(content);
-            if (!response) {
-                //this may happend if the LLM finds the prompt goes against its safe-rails
-                throw new Error('Invalid LLM response structure');
-            }
-            return response;
-        } catch (error) {
-            console.error('LLM Generation failed:', error);
-            throw error;
+        catch (error) {
+            console.error('LLM Model not preloaded:', error);
         }
     }
 
@@ -142,8 +104,7 @@ export class LLMService {
         }
 
         console.log("LLM Request: ", userPrompt);
-
-        const response = await fetch(this.apiUrl, {
+        const response = await fetch(this.apiUrl + "api/chat", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -156,18 +117,19 @@ export class LLMService {
                     { role: 'user', content: userPrompt }
                 ],
                 temperature: 0.7,
-                stream: false,
+                stream: true,
                 keep_alive: -1
             })
         });
 
         if (!response.ok) {
-            console.error('LLM API error:', response);
+            console.error('LLM API error:', response.statusText || "Unknown error");
             throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
         }
 
+        //console.log('LLM API response parsing...', response);
         const data = await response.json();
-        console.log('LLM API response:', data);
+        console.log('LLM API response parsed:', data);
 
         if (!data?.message?.content) {
             throw new Error(`LLM API error: Response is empty`);
@@ -176,11 +138,81 @@ export class LLMService {
         return data.message.content;
     }
 
-    private constructUserPrompt(
-        history: { round: number; scene: Scene }[],
+    async listModels() {
+        console.log("listing models from " + this.apiUrl + "...")
+        try {
+            const response = await fetch(this.apiUrl + "/api/tags", {
+                method: 'GET',
+            });
+            if (response.statusText != "OK")
+                return
+            const data = await response.json();
+            console.log('Model Names:');
+            data.models.forEach((m: any) => console.log(" * " + m.name));
+        }
+        catch (error) {
+            console.error('LLM Models not found:', error);
+            return false;
+        }
+    }
+
+    async validateService(): Promise<boolean> {
+        console.log('Validating LLM Service...');
+        this.isAvailable = false;
+        try {
+            const response = await this._callLLM('system', 'Respond only with the word APPLE');
+            console.log('LLM Service validation response:', response);
+            const isValid = response.trim().toUpperCase().includes('APPLE');
+            if (isValid) {
+                console.log('LLM Service validation successful.');
+            } else {
+                console.warn('LLM Service validation returned unexpected response:', response);
+            }
+            this.isAvailable = isValid;
+            return isValid;
+        } catch (error) {
+            console.error('LLM Service validation failed:', error);
+            this.isAvailable = false;
+            return false;
+        }
+    }
+
+    async generateNextRound(
+        rounds: Round[],
         players: Player[],
         lastMessages: Message[],
-        currentScene: Scene | null,
+        currentRound: Round | null,
+        directives?: string
+    ): Promise<LLMResponse> {
+
+        if (!this.apiUrl) {
+            console.warn('No LLM_API_URL found. Returning mock response.');
+            return this.getMockResponse(players);
+        }
+
+        const userPrompt = this.constructUserPrompt(rounds, players, lastMessages, currentRound, directives);
+        console.log('User Prompt:', userPrompt);
+
+        try {
+            const content = await this._callLLM(systemPrompt, userPrompt);
+            console.log('LLM Response:', content);
+            const response = this.parseResponse(content);
+            if (!response) {
+                //this may happend if the LLM finds the prompt goes against its safe-rails
+                throw new Error('Invalid LLM response structure');
+            }
+            return response;
+        } catch (error) {
+            console.error('LLM Generation failed:', error);
+            throw error;
+        }
+    }
+
+    private constructUserPrompt(
+        rounds: Round[],
+        players: Player[],
+        lastMessages: Message[],
+        currentRound: Round | null,
         directives?: string
     ): string {
         let prompt = ``;
@@ -192,32 +224,34 @@ export class LLMService {
         prompt += `Current Game Context:\n\n`;
 
         // recent history (last 2 rounds)
-        const relevantHistory = history.slice(-2);
+        const lastRound = rounds[rounds.length - 1];
+        const relevantHistory = rounds.slice(-2);
         if (relevantHistory.length > 0) {
-            prompt += `Previous Scenes:\n`;
+            prompt += `Previous Rounds:\n`;
             relevantHistory.forEach(h => {
-                prompt += `Round ${h.round}: ${h.scene.description}\n\n`;
+                prompt += `Round ${h.index}: ${h.description}\n\n`;
             });
         }
 
-        if (currentScene) {
-            prompt += `Current Round Description: ${currentScene.description}\n\n`;
+        if (currentRound) {
+            prompt += `Current Round Description: ${currentRound.description}\n\n`;
         }
 
         prompt += `Players:\n`;
-        players.forEach((p, i) => {
+        lastRound.characters.forEach((c, i) => {
             if (i == 0) return; //skip director
-            prompt += `${i + 1}. ${p.name} (ID: ${p.id}): Status="${p.statusText || ''}"`;
-            if (p.background) {
-                prompt += `\n  Background: "${p.background}"\n`;
+            const player = players[i]
+            prompt += `${i + 1}. ${player.name} (ID: ${player.id}): Status="${c.status || ''}"`;
+            if (c.background) {
+                prompt += `\n  Background: "${c.background}"\n`;
             }
-            prompt += `Action this round: "${lastMessages.find(m => m.senderId == p.id && m.isAction)?.content || ''}"\n`;
+            prompt += `Action this round: "${c.action || ''}"\n`;
             prompt += `\n`;
         });
 
         prompt += `\nRecent Messages said by players:\n`;
         lastMessages.forEach(m => {
-            if (m.senderId == players[0].id || m.isAction) return;
+            if (m.senderId == players[0].id) return;
             prompt += `[${m.senderName}]: "${m.content}" \n`;
         });
 

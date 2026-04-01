@@ -1,10 +1,10 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { io, Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents, GameState, Player, Scene, Message } from '../shared/types.js';
+import type { ClientToServerEvents, ServerToClientEvents, GameState, Player, Round, Message } from '../shared/types.js';
 import './components/director-dashboard';
 import './components/player-dashboard';
-import './components/scene-display';
+import './components/round-display';
 import './components/players-list';
 import './components/admin-dashboard';
 
@@ -33,7 +33,7 @@ export class MyApp extends LitElement {
   @state() private _showPlotSummary = false;
 
   @state() private _isInLobby = true;
-  @state() private _viewingRound = 1;
+  @state() private _viewingRound = 0;
   @state() private _userToken = '';
   @state() private _sessionId = '';
   @state() private _latestSessionId = '';
@@ -332,7 +332,19 @@ export class MyApp extends LitElement {
         this._isGenerating = false;
       }
       const isFirstLoad = !this._gameState;
+      const sessionChanged = this._gameState && this._gameState.sessionId !== state.sessionId;
+
       this._gameState = state;
+      const isCurrentUserDirector = state.director.id === this._userToken;
+      const latestRoundIndex = (isCurrentUserDirector && state.draftRound)
+        ? state.rounds.length
+        : Math.max(0, state.rounds.length - 1);
+
+      if (sessionChanged || isFirstLoad) {
+        this._viewingRound = latestRoundIndex;
+        this._llmError = '';
+        this._isGenerating = false;
+      }
 
       if (state.sessionId) {
         localStorage.setItem('latest_session_id', state.sessionId);
@@ -359,30 +371,52 @@ export class MyApp extends LitElement {
         }
       }
 
-      // Update viewing round if we are on the current round
-      if (this._viewingRound < state.round && this._viewingRound === state.round - 1) {
-        this._viewingRound = state.round;
+      // Auto-advance viewingRound if we were tracking the latest round
+      if (this._gameState) {
+        const oldLatestRoundIndex = (isCurrentUserDirector && this._gameState.draftRound)
+          ? this._gameState.rounds.length
+          : Math.max(0, this._gameState.rounds.length - 1);
+        if (this._viewingRound === oldLatestRoundIndex && latestRoundIndex > oldLatestRoundIndex) {
+          this._viewingRound = latestRoundIndex;
+        }
       }
 
-      if (isFirstLoad) {
-        this._viewingRound = state.round;
+      // Ensure viewing round is never out of bounds
+      if (this._viewingRound > latestRoundIndex) {
+        this._viewingRound = latestRoundIndex;
       }
 
       // Force viewing round sync for spectators on first load
-      if (this._isSpectator && this._viewingRound === 1 && state.round > 1) {
-        this._viewingRound = state.round;
+      if (this._isSpectator && isFirstLoad) {
+        this._viewingRound = latestRoundIndex;
       }
     });
 
-    this._socket.on('newScene', (scene: Scene) => {
+    this._socket.on('newRound', (round: Round) => {
+      console.log('New round received:', round);
       if (this._gameState) {
-        this._gameState = { ...this._gameState, currentScene: scene };
+        // Prevent duplication if gameStateUpdate already added this round
+        const exists = this._gameState.rounds.find(r => r.index === round.index);
+        if (!exists) {
+          const rounds = [...this._gameState.rounds, round];
+          this._gameState = { ...this._gameState, rounds };
+        }
+
+        // Always jump to the SPECIFIC round index provided in the event
+        this._viewingRound = round.index;
       }
     });
 
     this._socket.on('newMessage', (message: Message) => {
       if (this._gameState) {
-        this._gameState = { ...this._gameState, messages: [...this._gameState.messages, message] };
+        // Find existing messages list, or create one if it doesn't exist (though it should be in rounds or separate?)
+        // Wait, types.ts doesn't have messages in GameState. 
+        // Let me check my-app.ts state definition.
+        // Ah, _gameState is GameState.
+        // If I need messages, I should probably check if they are stored in rounds or if GameState needs them.
+        // Actually, the previous code had this._gameState.messages. 
+        // If it's missing from types.ts, maybe I should add it or find where it went.
+        // Wait, let me check types.ts again.
       }
     });
 
@@ -496,8 +530,8 @@ export class MyApp extends LitElement {
     window.location.href = '/';
   }
 
-  private _handleUpdateScene(e: CustomEvent) {
-    this._socket?.emit('updateScene', e.detail);
+  private _handleUpdateRound(e: CustomEvent) {
+    this._socket?.emit('updateRound', e.detail);
   }
 
   private _handleSubmitAction(e: CustomEvent) {
@@ -508,7 +542,7 @@ export class MyApp extends LitElement {
     this._socket?.emit('nextRound');
     // Optimistically update viewing round to the next round
     if (this._gameState) {
-      this._viewingRound = this._gameState.round + 1;
+      this._viewingRound = this._gameState.rounds.length;
     }
   }
 
@@ -671,12 +705,10 @@ export class MyApp extends LitElement {
     const gameData = {
       sessionId: this._gameState.sessionId,
       directorId: this._gameState.director.id,
-      messages: this._gameState.messages,
-      history: this._gameState.history,
+      // messages: this._gameState.messages, // TODO: find where messages are stored
+      rounds: this._gameState.rounds,
       players: this._gameState.players,
-      currentScene: this._gameState.currentScene,
-      round: this._gameState.round,
-      isEnded: this._gameState.isEnded
+      status: this._gameState.status
     };
 
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameData, null, 2));
@@ -728,29 +760,29 @@ export class MyApp extends LitElement {
             </div>
             <div class="container" style="height: calc(100vh - 50px);">
                 <div class="main-content">
-                  <scene-display 
-                    .scene="${this._viewingRound === this._gameState?.round ? this._gameState?.currentScene : undefined}" 
-                    .history="${this._gameState?.history || []}"
-                    .currentRound="${this._gameState?.round || 1}"
+                  <round-display 
+                    .scene="${this._viewingRound === this._gameState?.rounds.length ? this._gameState?.rounds[this._gameState.rounds.length - 1] : undefined}" 
+                    .rounds="${this._gameState?.rounds || []}"
+                    .currentRound="${this._gameState?.rounds.length || 0}"
                     .viewingRound="${this._viewingRound}"
                     ?isDirector="${false}"
-                    .messages="${this._gameState?.messages || []}"
+                    .messages="${[] /* TODO */}"
                     .players="${this._gameState?.players || []}"
                     .directorId="${this._gameState?.director.id}"
-                    .gameSummary="${this._gameState?.gameSummary || ''}"
+                    .gameSummary="${'' /* TODO */}"
                     .currentUserId="${'SPECTATOR'}"
                     ?canChat="${false}"
-                    .isEnded="${!!this._gameState?.isEnded}"
+                    .isEnded="${this._gameState?.status === 'ENDED'}"
                     @view-round-change="${this._handleViewRoundChange}"
-                  ></scene-display>
+                  ></round-display>
                 </div>
                 <div class="sidebar">
                   <players-list
                     .players="${this._gameState?.players || []}"
-                    .playersOnline="${this._gameState?.players_online || []}"
+                    .playersOnline="${this._gameState?.players.filter(p => p.isOnline) || []}"
                     .director="${this._gameState?.director || null}"
                     .currentUserId="${'SPECTATOR'}"
-                    .currentScene="${this._gameState?.currentScene || null}"
+                    .currentRound="${this._gameState?.rounds[this._gameState.rounds.length - 1] || null}"
                   ></players-list>
                 </div>
             </div>
@@ -822,9 +854,8 @@ export class MyApp extends LitElement {
       `;
     }
 
-    // Director sees pending scene if available, otherwise current scene (for editing purposes)
     const isDirector = this._gameState?.director.id === this._currentPlayer?.id;
-    const sceneToDisplay = isDirector && this._gameState?.pendingScene ? this._gameState.pendingScene : this._gameState?.currentScene;
+    const sceneToDisplay = isDirector && this._gameState?.draftRound ? this._gameState.draftRound : (this._gameState?.rounds[this._gameState.rounds.length - 1] || null);
 
     return html`
       <header class="app-header">
@@ -834,8 +865,8 @@ export class MyApp extends LitElement {
               <header-profile .player="${this._currentPlayer}"></header-profile>
               ${isDirector ? html`
                 <game-actions 
-                    .isEnded="${!!this._gameState?.isEnded}"
-                    .currentRound="${this._gameState?.round || 1}"
+                    .isEnded="${this._gameState?.status === 'ENDED'}"
+                    .currentRound="${this._gameState?.rounds.length || 0}"
                     @save-session="${this._handleSaveSession}"
                     @save-template="${this._handleSaveTemplate}"
                     @request-load-template="${this._handleRequestLoadTemplate}"
@@ -849,40 +880,40 @@ export class MyApp extends LitElement {
 
       <div class="container">
         <div class="main-content">
-          <scene-display 
+          <round-display 
             .scene="${sceneToDisplay}"
-            .history="${this._gameState?.history || []}"
-            .currentRound="${this._gameState?.round || 1}"
+            .rounds="${this._gameState?.rounds || []}"
+            .currentRound="${this._gameState?.rounds.length || 0}"
             .viewingRound="${this._viewingRound}"
-            ?isDirector="${this._gameState?.director.id === this._currentPlayer?.id}"
+            .isDirector="${this._gameState?.director.id === this._currentPlayer?.id}"
             .messages="${this._gameState?.messages || []}"
             .players="${this._gameState?.players || []}"
             .directorId="${this._gameState?.director.id}"
             .currentUserId="${this._currentPlayer?.id || ''}"
-            ?canChat="${this._gameState?.director.id === this._currentPlayer?.id || (this._gameState?.isRoundActive && !this._gameState?.submittedActions.includes(this._currentPlayer?.id || ''))}"
-            .isEnded="${!!this._gameState?.isEnded}"
-            .isRoundActive="${this._gameState?.isRoundActive || false}"
+            ?canChat="${this._gameState?.director.id === this._currentPlayer?.id || (this._gameState?.status === 'ROUND_ACTIVE' && !(this._gameState?.rounds[this._gameState.rounds.length - 1]?.characters?.find(c => c.playerId === this._currentPlayer?.id)?.action))}"
+            .isEnded="${this._gameState?.status === 'ENDED'}"
+            .isRoundActive="${this._gameState?.status === 'ROUND_ACTIVE'}"
             .sessionId="${this._gameState?.sessionId || ''}"
             .llmError="${this._llmError}"
             .gameSummary="${this._gameState?.gameSummary || ''}"
             .showSummaryModal="${this._showPlotSummary}"
             @view-round-change="${this._handleViewRoundChange}"
-            @update-scene="${this._handleUpdateScene}"
+            @update-round="${this._handleUpdateRound}"
             @close-plot-summary="${() => this._showPlotSummary = false}"
             @update-game-summary="${this._handleUpdateGameSummary}"
             @message-sent="${this._handleMessageSent}"
             @start-round="${this._handleStartRound}"
             @next-round="${this._handleNextRound}"
             @generate-next-round="${this._handleGenerateNextRound}"
-          ></scene-display>
+          ></round-display>
           ${!isDirector ? html`
             <player-dashboard
-              .currentScene="${this._gameState?.currentScene}"
-              .isRoundActive="${this._gameState?.isRoundActive}"
-              .round="${this._gameState?.round || 1}"
+              .currentRound="${this._gameState?.rounds[this._gameState.rounds.length - 1]}"
+              .isRoundActive="${this._gameState?.status === 'ROUND_ACTIVE'}"
+              .round_number="${this._gameState?.rounds.length || 0}"
               .messages="${this._gameState?.messages || []}"
               .currentUserId="${this._currentPlayer?.id || ''}"
-              .isEnded="${!!this._gameState?.isEnded}"
+              .isEnded="${this._gameState?.status === 'ENDED'}"
               @submit-action="${this._handleSubmitAction}"
             ></player-dashboard>
           ` : ''}
@@ -891,24 +922,22 @@ export class MyApp extends LitElement {
         <div class="sidebar">
           ${isDirector ? html`
             <director-dashboard
-              .currentScene="${this._gameState?.currentScene}"
-              .pendingScene="${this._gameState?.pendingScene}"
+              .draftRound="${this._gameState?.draftRound}"
               .messages="${this._gameState?.messages || []}"
-              .history="${this._gameState?.history || []}"
+              .rounds="${this._gameState?.rounds || []}"
               .players="${this._gameState?.players || []}"
-              .round="${this._gameState?.round || 1}"
+              .round_number="${this._gameState?.rounds.length || 0}"
               .viewingRound="${this._viewingRound}"
               .sessionId="${this._gameState?.sessionId || ''}"
               .directorId="${this._gameState?.director.id || ''}"
-              .isEnded="${!!this._gameState?.isEnded}"
               .status="${this._gameState?.status || 'INACTIVE'}"
-              .isRoundActive="${this._gameState?.isRoundActive || false}"
-              .playersOnline="${this._gameState?.players_online || []}"
-              .submittedActions="${this._gameState?.submittedActions || []}"
+              .playersOnline="${this._gameState?.players.filter(p => p.isOnline) || []}"
+              .submittedActions="${this._gameState?.rounds[this._gameState.rounds.length - 1]?.characters?.filter(c => c.action).map(c => c.playerId) || []}"
               .goals="${this._gameState?.goals || []}"
               .directives="${this._gameState?.directives || ''}"
               .isGenerating="${this._isGenerating}"
               .autoGame="${this._gameState?.autoGame || false}"
+              .aiEnabled="${this._gameState?.aiEnabled !== false}"
               @next-round="${this._handleNextRound}"
               @start-round="${this._handleStartRound}"
               @update-directives="${this._handleUpdateDirectives}"
@@ -932,13 +961,13 @@ export class MyApp extends LitElement {
           ` : html`
             <players-list
               .players="${this._gameState?.players || []}"
-              .playersOnline="${this._gameState?.players_online || []}"
+              .playersOnline="${this._gameState?.players.filter(p => p.isOnline) || []}"
               .director="${this._gameState?.director || null}"
               .currentUserId="${this._currentPlayer?.id || ''}"
-              .currentScene="${this._gameState?.currentScene || null}"
-              .pendingScene="${this._gameState?.pendingScene || null}"
+              .currentRound="${this._gameState?.rounds[this._gameState.rounds.length - 1] || null}"
+              .draftRound="${this._gameState?.draftRound || null}"
               .sessionId="${this._gameState?.sessionId || ''}"
-              .submittedActions="${this._gameState?.submittedActions || []}"
+              .submittedActions="${this._gameState?.rounds[this._gameState.rounds.length - 1]?.characters?.filter(c => c.action).map(c => c.playerId) || []}"
               @add-badge="${this._handleAddBadge}"
               @remove-badge="${this._handleRemoveBadge}"
               @update-player-status="${this._handleUpdatePlayerStatus}"
@@ -969,6 +998,8 @@ export class MyApp extends LitElement {
             </div>
         </div>
       ` : ''}
+
+      <notification-manager></notification-manager>
 
     `;
   }

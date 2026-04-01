@@ -1,0 +1,93 @@
+{
+  "sessionId": "N35CGF",
+  "gameName": "TestGame",
+  "director": {
+    "id": "ow0tr12wi5mm2a1a9c",
+    "name": "Master",
+    "isOnline": true
+  },
+  "players": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "Master",
+      "isOnline": true
+    },
+    {
+      "id": "ei0f13k1zwmnc5mmwm",
+      "name": "FirstCharacter",
+      "isOnline": true
+    }
+  ],
+  "draftRound": null,
+  "messages": [
+    {
+      "id": "raf0s",
+      "senderId": "ow0tr12wi5mm2a1a9c",
+      "senderName": "Master",
+      "content": "FirstSecret",
+      "timestamp": 1774812762401,
+      "isAction": false,
+      "round": 1,
+      "recipientId": "ei0f13k1zwmnc5mmwm"
+    }
+  ],
+  "rounds": [
+    {
+      "index": 0,
+      "description": "first round",
+      "summary": "",
+      "characters": [
+        {
+          "playerId": "ei0f13k1zwmnc5mmwm",
+          "status": "Status1",
+          "badges": [
+            {
+              "name": "oneBadge",
+              "hidden": false
+            },
+            {
+              "name": "twoBadge",
+              "hidden": false
+            }
+          ],
+          "action": "FirstAction",
+          "avatarIndex": 0,
+          "background": "Simple Description"
+        }
+      ],
+      "hasFinished": true
+    },
+    {
+      "index": 1,
+      "description": "Second Round",
+      "summary": "",
+      "characters": [
+        {
+          "playerId": "ei0f13k1zwmnc5mmwm",
+          "status": "Status1",
+          "badges": [
+            {
+              "name": "oneBadge",
+              "hidden": false
+            },
+            {
+              "name": "twoBadge",
+              "hidden": false
+            }
+          ],
+          "action": "Second action",
+          "avatarIndex": 0,
+          "background": "Simple Description",
+          "privateMessage": "FirstSecret"
+        }
+      ],
+      "hasFinished": false
+    }
+  ],
+  "gameSummary": "",
+  "status": "ROUND_ACTIVE",
+  "createdAt": 1774812640787,
+  "goals": [],
+  "directives": "",
+  "autoGame": false
+}

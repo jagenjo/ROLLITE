@@ -1,80 +1,90 @@
+
+// player fixed state
+export interface Player {
+    id: string;
+    name: string;
+    isOnline: boolean;
+}
+
 export interface Badge {
     name: string;
     hidden: boolean;
 }
 
-export interface Goal {
-    description: string;
-    isCompleted: boolean;
-}
-
-export interface Player {
-    id: string;
-    name: string;
+//character state in one round
+export interface Character {
+    playerId: string;
     avatarIndex?: number;
-    statusText?: string;
     background?: string;
+    status: string;
+    badges: Badge[];
+    action: string;
+    privateMessage?: string;
 }
 
+//messages sent in the chat
 export interface Message {
     id: string;
     senderId: string;
     senderName: string;
     content: string;
     timestamp: number;
-    isAction: boolean;
-    round: number;
+    round: number; // 0-indexed
     recipientId?: string;
+    isAction?: boolean;
 }
 
-export interface Scene {
+//holds the info for a single round, with the state of characters
+export interface Round {
+    index: number; // 0-indexed
     description: string;
-    playerStatuses?: Record<string, string>;
-    privateMessages?: Record<string, string>;
-    playerBadges?: Record<string, Badge[]>;
+    summary: string;
+    characters: Character[];
+    hasFinished: boolean
 }
 
+// goals for the game
+export interface Goal {
+    description: string;
+    isCompleted: boolean;
+}
+
+//holds the whole game info
 export interface GameState {
     sessionId: string;
     gameName: string;
     director: Player;
     players: Player[];
-    players_online: Player[];
-    currentScene: Scene | null;
-    pendingScene?: Scene | null;
-    round: number;
-    gameSummary?: string;
-    isRoundActive: boolean;
-    submittedActions: string[];
+    draftRound?: Round | null;
+    rounds: Round[];
     messages: Message[];
-    history: { round: number; scene: Scene }[];
-    isEnded?: boolean;
+    gameSummary?: string;
     status: 'INACTIVE' | 'ROUND_ACTIVE' | 'WAITING_AI' | 'ENDED';
     createdAt: number;
-    lastRoundAt?: number;
     goals?: Goal[];
     directives?: string;
     autoGame?: boolean;
+    aiEnabled?: boolean;
 }
 
+// Used to pass game info to admin panel
 export interface SessionSummary {
     sessionId: string;
     gameName: string;
-    round: number;
+    round_number: number;
     playerCount: number;
     onlineCount: number;
     directorId?: string;
-    isEnded?: boolean;
     status: string;
     createdAt: number;
-    lastRoundAt?: number;
 }
 
+// Server to Client Events
 export interface ServerToClientEvents {
     gameStateUpdate: (state: GameState) => void;
     playerJoined: (player: Player) => void;
     playerLeft: (playerId: string) => void;
-    newScene: (scene: Scene) => void;
+    newRound: (round: Round) => void;
     newMessage: (message: Message) => void;
     error: (message: string) => void;
     llmError: (message: string) => void;
@@ -98,7 +108,7 @@ export interface ClientToServerEvents {
     endSession: (sessionId: string) => void;
     submitAction: (action: string, token: string) => void;
     postMessage: (content: string, token: string) => void;
-    updateScene: (scene: Scene) => void;
+    updateRound: (round: Round) => void;
     startRound: (sessionId: string) => void;
     nextRound: () => void;
     addBadge: (playerId: string, badge: string, hidden: boolean) => void;

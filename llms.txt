@@ -1,0 +1,45 @@
+# ROLLITE - RPG Session Manager
+
+A multiplayer RPG platform where a user or an AI acts as a Dungeon Master (Director) to facilitate storytelling and game mechanics.
+
+## Tech Stack
+- **Frontend**: [Lit](https://lit.dev/) (Web Components), [Vite](https://vitejs.dev/) (Bundler), [Socket.IO Client](https://socket.io/).
+- **Backend**: [Node.js](https://nodejs.org/) with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/) (Real-time events).
+- **Language**: TypeScript (Strict typing across shared, client, and server).
+- **AI**: [Ollama](https://ollama.com/) / Local LLM integration via `LLMService.ts`.
+- **Persistence**: File-based storage (`data/` directory) using JSON.
+
+## Core Architecture
+- **State Management**: Reactive state handled by `GameManager.ts` on the server and broadcast to clients via `gameStateUpdate` events.
+- **Shared Types**: `src/shared/types.ts` is the single source of truth for all data structures (GameState, Round, Player, etc.) and Socket events. **Always refer to this file first.**
+- **Round Logic**: 
+    - Rounds are **0-indexed** internally.
+    - Lifecycle: `INACTIVE` -> `ROUND_ACTIVE` (players submit actions) -> `WAITING_AI` (LLM generates next round) -> `INACTIVE` (Director reviews draft).
+    - `draftRound` holds the next round's content before it is officially started.
+- **Roles**:
+    - **Director**: Full control over game state, directives, and round transitions.
+    - **Player**: Participates in rounds, submits actions, and views public/private information.
+
+## Key Directory Structure
+- `src/client/`: Lit components and frontend logic.
+    - `my-app.ts`: Main entry point and state coordinator.
+    - `components/`: UI pieces (Dashboards, Chat, Round displays).
+- `src/server/`: Backend logic.
+    - `server.ts`: Express/Socket.IO setup and event routing.
+    - `game/GameManager.ts`: Core game logic (session management, round progression).
+    - `services/LLMService.ts`: AI prompt engineering and JSON parsing logic.
+- `src/shared/`: Shared TypeScript types and constants.
+- `data/`: Persistence storage for sessions, templates, and history.
+
+## Common Workflows
+- **Development**: `npm run dev` (Runs server with nodemon + Vite middleware).
+- **Testing**: `npm run test` (Runs game flow validation).
+- **Build**: `npm run build` (Builds client to `dist/client` and server to `dist/server`).
+
+## Important Gotchas
+- **Round Indexing**: Internal logic is 0-indexed. UI displays are often 1-indexed. Ensure consistency when modifying round-related logic.
+- **Private Messages**: Private messages are sent to players via socket events and stored in the round data. They are not broadcast to all players.
+- **Rounds store Character state**: Each round stores the state of each character for that round. This includes the character's action, private message, and any other relevant information.
+- **Data Sanitization**: The server sanitizes the game state before broadcasting (e.g., hiding private messages from other players).
+- **AI Response Parsing**: `LLMService.ts` expects a specific JSON structure wrapped in `<JSON>` tags.
+- **Persistence**: Game state is saved to `data/sessions/` on shutdown (SIGINT/SIGTERM) or manual save.

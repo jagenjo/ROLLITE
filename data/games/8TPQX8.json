@@ -1,0 +1,74 @@
+{
+  "sessionId": "8TPQX8",
+  "gameName": "rr",
+  "director": {
+    "id": "ow0tr12wi5mm2a1a9c",
+    "name": "gg",
+    "isOnline": true
+  },
+  "players": [
+    {
+      "id": "ow0tr12wi5mm2a1a9c",
+      "name": "gg",
+      "isOnline": true
+    },
+    {
+      "id": "noqzmkeyewmnblo76d",
+      "name": "erar",
+      "isOnline": true
+    },
+    {
+      "id": "dnunjok5li4mnblobb9",
+      "name": "eeee",
+      "isOnline": true
+    },
+    {
+      "id": "kp2dr6k482fmnblz4f9",
+      "name": "aedaed",
+      "isOnline": true
+    },
+    {
+      "id": "b4s8dvkmowgmnblzbm8",
+      "name": "efefef",
+      "isOnline": true
+    },
+    {
+      "id": "4xdnogy7ymomnbm5o2c",
+      "name": "aaa",
+      "isOnline": true
+    },
+    {
+      "id": "64uho9xnscmnbm5vl9",
+      "name": "aaaa",
+      "isOnline": true
+    },
+    {
+      "id": "r1ws2p12twrmnbm6s58",
+      "name": "erer",
+      "isOnline": true
+    }
+  ],
+  "draftRound": {
+    "index": 0,
+    "description": "",
+    "summary": "",
+    "characters": [
+      {
+        "playerId": "r1ws2p12twrmnbm6s58",
+        "status": "",
+        "badges": [],
+        "action": "",
+        "avatarIndex": 0
+      }
+    ],
+    "hasFinished": false
+  },
+  "messages": [],
+  "rounds": [],
+  "gameSummary": "",
+  "status": "INACTIVE",
+  "createdAt": 1774778885782,
+  "goals": [],
+  "directives": "",
+  "autoGame": false
+}

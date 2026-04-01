@@ -14,17 +14,6 @@ export default defineConfig(({ mode }) => {
             emptyOutDir: true,
         },
         server: {
-            port: 5173,
-            proxy: {
-                // Proxy socket.io to server
-                '/socket.io': {
-                    target: 'http://localhost:4001',
-                    ws: true
-                },
-                '/upload': {
-                    target: 'http://localhost:4001'
-                }
-            },
             watch: {
                 ignored: ['**/public/uploads/**']
             }

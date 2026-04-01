@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Player } from '../../shared/types.js';
+import type { Player, Round } from '../../shared/types.js';
 import './player-card';
 import './character-sheet';
 
@@ -10,8 +10,8 @@ export class PlayersList extends LitElement {
   @property({ type: Array }) playersOnline: Player[] = [];
   @property({ type: Object }) director: Player | null = null;
   @property({ type: String }) currentUserId = '';
-  @property({ type: Object }) currentScene: any | null = null; // Scene | null
-  @property({ type: Object }) pendingScene: any | null = null; // Scene | null
+  @property({ type: Object }) currentRound: Round | null = null;
+  @property({ type: Object }) draftRound: Round | null = null;
   @property({ type: String }) sessionId = '';
   @property({ type: Array }) submittedActions: string[] = [];
 
@@ -99,15 +99,18 @@ export class PlayersList extends LitElement {
       ? this.players.find(p => p.id === this._selectedPlayerId) || null
       : null;
 
+    const selectedPlayerChar = selectedPlayer ? this.currentRound?.characters?.find(c => c.playerId === selectedPlayer.id) : null;
+    const draftChar = selectedPlayer ? this.draftRound?.characters?.find(c => c.playerId === selectedPlayer.id) : null;
+
     // Aggregate badges for selected player
     const selectedPlayerBadges = selectedPlayer
-      ? (this.currentScene?.playerBadges?.[selectedPlayer.id] || [])
+      ? (draftChar?.badges || selectedPlayerChar?.badges || [])
       : [];
     const formattedBadges = selectedPlayerBadges.map((b: any) => typeof b === 'string' ? { name: b, hidden: false } : b);
 
     // Get selected player status
     const selectedPlayerStatus = selectedPlayer
-      ? (this.pendingScene?.playerStatuses?.[selectedPlayer.id] || selectedPlayer.statusText || '')
+      ? (draftChar?.status || selectedPlayerChar?.status || '')
       : '';
 
     // Check if current user is director
@@ -117,7 +120,11 @@ export class PlayersList extends LitElement {
       <div class="players-list-container">
         <div class="players-grid">
         ${this.players.map(p => {
-      const avatarIdx = p.avatarIndex !== undefined ? p.avatarIndex : 0;
+      const avatarIdx = (() => {
+        const charData = this.currentRound?.characters?.find(c => c.playerId === p.id);
+        const draftCharData = this.draftRound?.characters?.find(c => c.playerId === p.id);
+        return draftCharData?.avatarIndex ?? charData?.avatarIndex ?? 0;
+      })();
       const isPlayerDirector = p.id === this.director?.id;
       if (isPlayerDirector) return;
       const online = isOnline(p.id);
@@ -147,23 +154,30 @@ export class PlayersList extends LitElement {
                             <div 
                                 class="status-text"
                             >
-                                ${this.pendingScene?.playerStatuses?.[p.id] ? html`<span style="color: #fbbf24; font-style: italic;">${this.pendingScene.playerStatuses[p.id]}</span>` : (p.statusText || '')}
+                                ${(() => {
+            const charData = this.currentRound?.characters?.find(c => c.playerId === p.id);
+            const draftCharData = this.draftRound?.characters?.find(c => c.playerId === p.id);
+            return draftCharData?.status ? html`<span style="color: #fbbf24; font-style: italic;">${draftCharData.status}</span>` : (charData?.status || '');
+          })()}
                             </div>
                         </div>
                     ` : ''}
 
                     <div slot="badges">
-                        ${this.currentScene?.playerBadges?.[p.id]?.map((badge: any) => {
-        const badgeName = typeof badge === 'string' ? badge : badge.name;
-        const isHidden = typeof badge === 'string' ? false : (badge as any).hidden;
-        if (isHidden && !isDirector) return null;
+                        ${(() => {
+          const charData = this.currentRound?.characters?.find(c => c.playerId === p.id);
+          return charData?.badges.map((badge: any) => {
+            const badgeName = typeof badge === 'string' ? badge : badge.name;
+            const isHidden = typeof badge === 'string' ? false : (badge as any).hidden;
+            if (isHidden && !isDirector) return null;
 
-        return html`
+            return html`
                                 <span class="badge ${isHidden ? 'hidden' : ''}" title="${isHidden ? 'Hidden Badge' : ''}">
                                     ${badgeName}
                                 </span>
                             `;
-      }) || ''}
+          });
+        })() || ''}
                     </div>
                 </player-card>
             `;
@@ -178,7 +192,13 @@ export class PlayersList extends LitElement {
         .isDirector="${isDirector}" 
         .badges="${formattedBadges}"
         .statusText="${selectedPlayerStatus}"
+        .avatarIndex="${(() => {
+        const charData = this.currentRound?.characters?.find(c => c.playerId === selectedPlayer?.id);
+        const draftCharData = this.draftRound?.characters?.find(c => c.playerId === selectedPlayer?.id);
+        return draftCharData?.avatarIndex ?? charData?.avatarIndex ?? 0;
+      })()}"
         .sessionId="${this.sessionId}"
+        .draftRound="${this.draftRound}"
         @close="${this._closeCharacterSheet}"
       ></character-sheet>
     `;

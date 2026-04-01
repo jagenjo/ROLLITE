@@ -17,7 +17,7 @@ export class NotificationManager extends LitElement {
       position: fixed;
       bottom: 2rem;
       right: 2rem;
-      z-index: 1000;
+      z-index: 9999;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
